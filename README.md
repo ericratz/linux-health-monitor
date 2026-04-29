@@ -1,16 +1,22 @@
-Linux Health Monitor
-A Docker/Python script that collects Linux server metrics and outputs a JSON health report.
-Demonstrates SRE/DevOps concepts like automation, containerization, and CI/CD.
+# Linux Health Monitor
+A Docker/Python system monitoring tool that collects Linux server metrics and outputs a JSON health report.
 
-Features:
+Demonstrates SRE/DevOps concepts like monitoring, automation, containerization, and CI/CD.
+
+---
+
+## Features:
 -Resource usage monitoring
 -System info gathering
--User info gathering
 -Health check with alerts and exit codes
 -JSON output for automation
--Docker provided protability
+-Docker provided portability
+-Automated CI/CD pipeline through Github Actions and Docker
 
-Output:
+---
+
+## Output:
+```json
 {
   "timestamp": "2026-04-27T22:56:45+00:00",
   "system": {
@@ -38,11 +44,18 @@ Output:
   "status": "HEALTHY",
   "alerts": []
 }
+```
+---
 
-Requirements:
+## Requirements:
 -Python 3.12+
 -Docker
 
-Docker build image:
+## Docker build image:
+```bash
 docker build -t linux-health-monitor .
 docker run linux-health-monitor
+```
+
+## CI/CD
+Automatically builds and publishes Docker images using GitHub Actions and GitHub Container Registry.

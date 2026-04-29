@@ -17,6 +17,10 @@ def get_timestamp():
 
 
 def detect_environment():
+    if os.getenv("CI") == "true":
+        return "CI"
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        return "GitHub Actions"
     release = platform.release().lower()
     if "microsoft" in release or "wsl" in release:
         return "WSL2"
