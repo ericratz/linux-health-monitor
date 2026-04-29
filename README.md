@@ -7,10 +7,15 @@ Demonstrates SRE/DevOps concepts like monitoring, automation, containerization, 
 
 ## Features:
 -Resource usage monitoring
+
 -System info gathering
+
 -Health check with alerts and exit codes
+
 -JSON output for automation
+
 -Docker provided portability
+
 -Automated CI/CD pipeline through Github Actions and Docker
 
 ---
@@ -49,6 +54,7 @@ Demonstrates SRE/DevOps concepts like monitoring, automation, containerization, 
 
 ## Requirements:
 -Python 3.12+
+
 -Docker
 
 ## Docker build image:
