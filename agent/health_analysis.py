@@ -1,5 +1,19 @@
-#analysis.py
-def compute_health_status(ctx):
+#health_analysis.py
+def build_snapshot(cpu, memory, disk, load):
+    """
+    Builds a snapshot of the system's current state.
+    """
+    return {
+        "cpu": cpu,
+        "mem_used": memory["used_percent"],
+        "disk_used": disk["root_used_percent"],
+        "load": load
+    }
+
+def generate_health_status(ctx):
+    """
+    Evaluates system metrics and returns a health status.
+    """
     cpu = ctx["cpu"]
     mem = ctx["mem_used"]
     disk = ctx["disk_used"]
@@ -12,6 +26,9 @@ def compute_health_status(ctx):
 
 
 def generate_alerts(ctx):
+    """
+    Generates alert messages for high system usage.
+    """
     alerts = []
 
     if ctx["cpu"] > 70:
@@ -23,7 +40,10 @@ def generate_alerts(ctx):
     return alerts
 
     
-def generate_diagnosis(ctx):
+def generate_diagnostics(ctx):
+    """
+    Generates possible causes for system issues.
+    """
     notes = []
 
     if ctx["load"]["1min"] > ctx["cpu"]:
@@ -45,6 +65,9 @@ def generate_diagnosis(ctx):
 
 
 def generate_recommendations(ctx, env):
+    """
+    Generates recommended actions to address system issues.
+    """
     actions = []
 
     if ctx["cpu"] > 80:

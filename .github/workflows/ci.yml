@@ -30,9 +30,9 @@ jobs:
 
       - name: Test CLI modes
         run: |
-          python -m agent.monitor -s
-          python -m agent.monitor
-          python -m agent.monitor -a
+          python -m agent.monitor -s > /dev/null
+          python -m agent.monitor  > /dev/null
+          python -m agent.monitor -a > /dev/null
 
       - name: Test HTML output
         run: |

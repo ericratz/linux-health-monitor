@@ -1,32 +1,33 @@
-#monitor.py
-from html import parser
-
+#monitor.py - main code driver
 from agent.system_metrics import (
     get_cpu_usage,
     get_memory_usage,
     get_disk_usage,
-    get_load_usage,
+    get_load_average,
     get_network_io,
     get_system_uptime,
-    get_log_file_usage_feature,
+    get_top_processes
 )
 
-from agent.processes import get_top_processes
-from agent.snapshot import build_snapshot, get_system_identity
-from agent.analysis import (
-    compute_health_status,
+from agent.health_analysis import (
+    generate_health_status,
     generate_alerts,
-    generate_diagnosis,
+    generate_diagnostics,
     generate_recommendations,
+    
 )
-from agent.environment import detect_environment
-from agent.services import get_system_services, get_docker_status
-from agent.utils import get_timestamp
-from agent.format import build_view
+from agent.system_context import (
+    detect_environment,
+    get_service_statuses,
+    get_docker_containers,
+    get_system_identity,
+    get_disk_details
+)
 from agent.html_report import generate_html
-
+from datetime import datetime, timezone
 import argparse
 import json
+import os
 
 """
 Linux Health Monitor Agent
@@ -50,69 +51,120 @@ class HealthMonitor:
     def __init__(self):
         self.env = detect_environment()
 
-    def collect_metrics(self):
+    def collect_core_metrics(self):
+        """
+        Collects CPU, memory, disk, and load metrics.
+        """
         return {
             "cpu": get_cpu_usage(),
             "memory": get_memory_usage(),
             "disk": get_disk_usage(),
-            "load": get_load_usage(),
+            "load": get_load_average(),
         }
 
-    def analyze(self, metrics):
-        ctx = build_snapshot(
-            metrics["cpu"],
-            metrics["memory"],
-            metrics["disk"],
-            metrics["load"]
-        )
-
+    def run_health_analysis(self, metrics):
+        """
+        Generates a health report from relevant metrics.
+        """
+        mem = metrics["memory"]["used_percent"]
+        disk = metrics["disk"]["root_used_percent"]
+        ctx = {
+            "cpu": metrics["cpu"],
+            "mem_used": mem,
+            "disk_used": disk,
+            "load": metrics["load"],
+        }
         return {
-            "status": compute_health_status(ctx),
+            "status": generate_health_status(ctx),
             "alerts": generate_alerts(ctx),
-            "diagnosis": generate_diagnosis(ctx),
+            "diagnosis": generate_diagnostics(ctx),
             "actions": generate_recommendations(ctx, self.env),
         }
 
     def report(self):
-        metrics = self.collect_metrics()
-        analysis = self.analyze(metrics)
-
+        """
+        Generates a comprehensive system health report into a dictionary.
+        """
+        metrics = self.collect_core_metrics()
+        analysis = self.run_health_analysis(metrics)
         return {
-            "timestamp": get_timestamp(),
-            "system": get_system_identity(),
+            "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "system": get_system_identity(self.env),
             "uptime_seconds": get_system_uptime(),
-
             "core_metrics": {
                 **metrics,
                 "network": get_network_io(),
             },
-
             "top_processes": get_top_processes(),
-
             "health": analysis,
-
             "features": {
-            "services": get_system_services(self.env),
-            "docker": get_docker_status(),
-            "disk_details": get_log_file_usage_feature(),
+            "services": get_service_statuses(self.env),
+            "docker": get_docker_containers(),
+            "disk_details": get_disk_details(),
             },
         }
 
 
 def parse_args():
+    """
+    Parses command-line arguments.
+    """
     parser = argparse.ArgumentParser(description="Linux Health Monitor")
-
     parser.add_argument("-s", "--simple", action="store_true")
     parser.add_argument("-a", "--all", action="store_true")
     parser.add_argument("--html", metavar="FILE", help="Write HTML report")
-    
     return parser.parse_args()
 
+def write_output(view, html_file=None):
+    """
+    Outputs as JSON or HTML file.
+    """
+    if html_file:
+        html = generate_html(view)
+        os.makedirs("reports", exist_ok=True)
+        output_path = os.path.join("reports", html_file)
+        with open(output_path, "w") as f:
+            f.write(html)
+    else:
+        print(json.dumps(view, indent=2))
 
-
-
+def build_view(data, mode):
+    """
+    Builds a mode-specific view of the system's current state.
+    """
+    base = {
+        "timestamp": data["timestamp"],
+        "system": data["system"],
+        "core_metrics": data["core_metrics"],
+    }
+    #simple mode
+    if mode == "simple":
+        return base
+    #default mode
+    base.update(
+        {
+            "uptime_seconds": data.get("uptime_seconds"),
+            "health": {
+                "status": data["health"]["status"],
+                "diagnosis": data["health"]["diagnosis"],
+            },
+        }
+    )
+    #all mode
+    if mode == "all":
+        base.update(
+            {
+                "top_processes": data.get("top_processes"),
+                "health": data["health"],
+                "features": data.get("features"),
+            }
+        )
+    return base
 
 def main():
+    """
+    Main code driver.
+    """
     #handle args
     args = parse_args()
 
@@ -126,20 +178,15 @@ def main():
     if args.simple:
         mode = "simple"
     elif args.all:
-        mode = "full"
+        mode = "all"
     else:
         mode = "default"
 
     #build view
     view = build_view(data, mode)
 
-    if args.html:
-        html = generate_html(view)
-        with open(args.html, "w") as f:
-            f.write(html)
-    else:
-        #print view
-        print(json.dumps(view, indent=2))
+    #write output
+    write_output(view, args.html)
 
     #exit with appropriate code
     status = data["health"]["status"]
