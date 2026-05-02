@@ -8,7 +8,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+ENV PYTHONPATH=/app
+
 RUN useradd -m appuser
 USER appuser
 
-CMD ["python", "-u", "monitor.py"]
+CMD ["python", "-u", "-m", "agent.monitor"]
