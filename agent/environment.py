@@ -34,16 +34,3 @@ def is_docker():
         return True
 
     return False
-
-def get_environment_summary(env):
-    return {
-        "environment": env,
-        "is_containerized": env == "Docker",
-        "limitations": (
-            [
-                "systemd unavailable",
-                "restricted process visibility",
-                "no docker CLI access"
-            ] if env == "Docker" else []
-        )
-    }

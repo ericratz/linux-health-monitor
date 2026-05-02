@@ -25,28 +25,16 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run tests
+      - name: Run pytest
         run: pytest
 
-
-  run-monitor:
-    name: Run monitor script (sanity check)
-    runs-on: ubuntu-latest
-    needs: test
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install dependencies
+      - name: Test CLI modes
         run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
+          python -m agent.monitor -s
+          python -m agent.monitor
+          python -m agent.monitor -a
 
-      - name: Run monitor
-        run: python -m agent.monitor || true
+      - name: Test HTML output
+        run: |
+          python -m agent.monitor --html report.html
+          test -f report.html

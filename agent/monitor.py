@@ -1,11 +1,31 @@
 #monitor.py
-from agent.system_metrics import get_cpu_usage, get_memory_usage, get_disk_usage, get_load_usage, get_network_io, get_system_uptime, get_log_file_usage_feature
+from html import parser
+
+from agent.system_metrics import (
+    get_cpu_usage,
+    get_memory_usage,
+    get_disk_usage,
+    get_load_usage,
+    get_network_io,
+    get_system_uptime,
+    get_log_file_usage_feature,
+)
+
 from agent.processes import get_top_processes
 from agent.snapshot import build_snapshot, get_system_identity
-from agent.analysis import compute_health_status, generate_alerts, generate_diagnosis, generate_recommendations
+from agent.analysis import (
+    compute_health_status,
+    generate_alerts,
+    generate_diagnosis,
+    generate_recommendations,
+)
 from agent.environment import detect_environment
 from agent.services import get_system_services, get_docker_status
 from agent.utils import get_timestamp
+from agent.format import build_view
+from agent.html_report import generate_html
+
+import argparse
 import json
 
 """
@@ -79,18 +99,56 @@ class HealthMonitor:
         }
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Linux Health Monitor")
+
+    parser.add_argument("-s", "--simple", action="store_true")
+    parser.add_argument("-a", "--all", action="store_true")
+    parser.add_argument("--html", metavar="FILE", help="Write HTML report")
+    
+    return parser.parse_args()
+
+
+
+
+
 def main():
+    #handle args
+    args = parse_args()
+
+    #initialize monitor
     monitor = HealthMonitor()
+
+    #collect data
     data = monitor.report()
 
-    print(json.dumps(data, indent=2))
+    #select mode
+    if args.simple:
+        mode = "simple"
+    elif args.all:
+        mode = "full"
+    else:
+        mode = "default"
 
-    if data["health"]["status"] == "WARNING":
+    #build view
+    view = build_view(data, mode)
+
+    if args.html:
+        html = generate_html(view)
+        with open(args.html, "w") as f:
+            f.write(html)
+    else:
+        #print view
+        print(json.dumps(view, indent=2))
+
+    #exit with appropriate code
+    status = data["health"]["status"]
+    if status == "WARNING":
         exit(1)
-    elif data["health"]["status"] == "CRITICAL":
+    elif status == "CRITICAL":
         exit(2)
-
-    exit(0)
+    else:
+        exit(0)
 
 
 if __name__ == "__main__":
