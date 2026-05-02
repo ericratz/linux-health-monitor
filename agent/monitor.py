@@ -122,14 +122,18 @@ def write_output(view, html_file=None):
     """
     Outputs as JSON or HTML file.
     """
-    if html_file:
-        html = generate_html(view)
-        os.makedirs("reports", exist_ok=True)
-        output_path = os.path.join("reports", html_file)
-        with open(output_path, "w") as f:
-            f.write(html)
-    else:
-        print(json.dumps(view, indent=2))
+    try:
+        if html_file:
+            html = generate_html(view)
+            os.makedirs("reports", exist_ok=True)
+            output_path = os.path.join("reports", html_file)
+            with open(output_path, "w") as f:
+                f.write(html)
+        else:
+            print(json.dumps(view, indent=2))
+    except Exception as e:
+        print("HTML generation failed:", e)
+        raise
 
 def build_view(data, mode):
     """

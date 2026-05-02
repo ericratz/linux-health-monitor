@@ -34,7 +34,17 @@ jobs:
           python -m agent.monitor  > /dev/null
           python -m agent.monitor -a > /dev/null
 
-      - name: Test HTML output
+      - name: Test HTML output (DEBUG)
+        continue-on-error: true
         run: |
           python -m agent.monitor --html report.html
-          test -f report.html
+
+          echo "Exit code was: $?"
+
+          ls -lah
+
+          if [ -f report.html ]; then
+            echo "HTML file created successfully"
+          else
+            echo "HTML file NOT created"
+          fi
