@@ -28,7 +28,6 @@ from datetime import datetime, timezone
 import argparse
 import json
 import os
-CI_MODE = os.getenv("CI") == "true"
 
 """
 Linux Health Monitor Agent
@@ -197,12 +196,11 @@ def main():
 
     #exit with appropriate code
     status = data["health"]["status"]
-    if not CI_MODE:
-        if status == "WARNING":
-            exit(1)
-        elif status == "CRITICAL":
-            exit(2)
-    
+
+    if status == "WARNING":
+        exit(1)
+    elif status == "CRITICAL":
+        exit(2)    
     exit(0)
 
 
