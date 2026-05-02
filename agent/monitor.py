@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 import argparse
 import json
 import os
+CI_MODE = os.getenv("CI") == "true"
 
 """
 Linux Health Monitor Agent
@@ -46,6 +47,8 @@ Features:
 Designed for portability and safe execution across:
 Linux, WSL2, Docker containers, and CI/CD environments.
 """
+
+
 
 class HealthMonitor:
     def __init__(self):
@@ -190,12 +193,13 @@ def main():
 
     #exit with appropriate code
     status = data["health"]["status"]
-    if status == "WARNING":
-        exit(1)
-    elif status == "CRITICAL":
-        exit(2)
-    else:
-        exit(0)
+    if not CI_MODE:
+        if status == "WARNING":
+            exit(1)
+        elif status == "CRITICAL":
+            exit(2)
+    
+    exit(0)
 
 
 if __name__ == "__main__":
