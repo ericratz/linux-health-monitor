@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wsl -e bash -c \"cd /home/ericratz/linux-health-monitor/.claude/worktrees/upbeat-gagarin-1221af && /home/ericratz/linux-health-monitor/.venv/bin/python3.14 -m pytest tests/ -v\")"
+    ]
+  }
+}

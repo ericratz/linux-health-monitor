@@ -1,0 +1,82 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Linux Health Monitor Report</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+            background: #0f1115;
+            color: #e6e6e6;
+        }
+        .card {
+            background: #1a1d24;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+        }
+        .good { color: #4caf50; }
+        .warn { color: #ff9800; }
+        .bad { color: #f44336; }
+        pre {
+            background: #111;
+            padding: 10px;
+            border-radius: 6px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+
+<body>
+
+<h1>Linux Health Monitor</h1>
+<p>Generated: 2026-05-02 22:49:35 UTC</p>
+
+<div class="card">
+    <h2>System</h2>
+    <pre>{
+  "os": "Linux",
+  "distro": "Ubuntu 20.04.6 LTS",
+  "kernel": "6.6.87.2-microsoft-standard-WSL2",
+  "hostname": "W530",
+  "environment": "WSL2"
+}</pre>
+</div>
+
+<div class="card">
+    <h2>Core Metrics</h2>
+    <pre>{
+  "cpu": 2.7,
+  "memory": {
+    "used_percent": 51.5,
+    "available": "2.78 GB",
+    "swap_used_percent": 0.0
+  },
+  "disk": {
+    "root_used_percent": 0.7,
+    "root_free": "949.15 GB"
+  },
+  "load": {
+    "1min": 0.05,
+    "5min": 0.16,
+    "15min": 0.17
+  },
+  "network": {
+    "bytes_sent": "701.78 MB",
+    "bytes_received": "634.37 MB"
+  }
+}</pre>
+</div>
+
+<div class="card">
+    <h2>Features</h2>
+    <pre>{
+  "disk_details": {
+    "data": []
+  }
+}</pre>
+</div>
+
+</body>
+</html>
