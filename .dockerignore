@@ -8,15 +8,8 @@
 # Python
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
 .venv/
-*.egg-info/
-
-# Dev/test
-tests/
 .pytest_cache/
-pyproject.toml
 
 # Generated output
 reports/
