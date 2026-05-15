@@ -1,18 +1,8 @@
-# Version control
 .git
 .gitignore
-
-# Claude Code artifacts
-.claude/
-
-# Python
 __pycache__/
 *.pyc
 .venv/
 .pytest_cache/
-
-# Generated output
 reports/
-
-# Docs
 README.md

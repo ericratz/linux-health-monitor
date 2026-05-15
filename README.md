@@ -19,12 +19,12 @@ A lightweight, environment-aware system observability tool that collects system 
 ## CLI Usage
 
 ```bash
-python -m agent.monitor              # default: core metrics + uptime + health
-python -m agent.monitor -s           # simple: core metrics only
-python -m agent.monitor -a           # all: includes processes, services, disk details
-python -m agent.monitor -H           # human-readable: formats bytes, percents, time, and load
-python -m agent.monitor --no-exit-code  # always exit 0 (useful in CI pipelines)
-python -m agent.monitor --html report.html  # write HTML report to reports/report.html
+python -m agent.monitor              #default: core metrics + uptime + health
+python -m agent.monitor -s           #simple: core metrics only
+python -m agent.monitor -a           #all: includes processes, services, disk details
+python -m agent.monitor -H           #human-readable: formats bytes, percents, time, and load
+python -m agent.monitor --no-exit-code  #always exit 0 (useful in CI pipelines)
+python -m agent.monitor --html report.html  #write HTML report to reports/report.html
 ```
 
 Flags can be combined: `python -m agent.monitor -a -H --no-exit-code`
