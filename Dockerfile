@@ -6,4 +6,4 @@ COPY . .
 ENV PYTHONPATH=/app
 RUN useradd -m appuser
 USER appuser
-CMD ["python", "-u", "-m", "agent.monitor"]
+ENTRYPOINT ["python", "-u", "-m", "agent.monitor"]
