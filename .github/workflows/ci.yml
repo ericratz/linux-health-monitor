@@ -31,10 +31,19 @@ jobs:
       - name: Test CLI modes
         run: |
           python -m agent.monitor -s > /dev/null
-          python -m agent.monitor  > /dev/null
+          python -m agent.monitor > /dev/null
           python -m agent.monitor -a > /dev/null
+
+      - name: Test flags
+        run: |
+          python -m agent.monitor -H --no-exit-code > /dev/null
+          python -m agent.monitor -a -H --no-exit-code > /dev/null
+
+      - name: Test configurable thresholds
+        run: |
+          HEALTH_CPU_CRIT=1 python -m agent.monitor --no-exit-code > /dev/null
 
       - name: Test HTML output
         run: |
-          python -m agent.monitor --html report.html
+          python -m agent.monitor -a --html report.html
           test -f reports/report.html

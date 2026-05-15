@@ -3,6 +3,7 @@ from agent.system_metrics import get_directory_usage
 import os
 import subprocess
 import platform
+import psutil
 
 def run_command(command):
     """
@@ -64,28 +65,23 @@ def get_system_identity(env):
         ),
         "kernel": platform.release(),
         "hostname": platform.node(),
+        "cpu_cores": psutil.cpu_count(logical=True),
         "environment": env
     }
 
 def is_docker():
     """
-    Checks if the code is running in a Docker container.
+    Checks if the code is running inside a container (Docker, Podman, LXC, Kubernetes).
     """
-    #docker env check
     if os.path.exists("/.dockerenv"):
         return True
-    #cgroup check
     try:
-        with open("/proc/1/cgroup", "rt") as f:
-            for line in f:
-                if any(x in line for x in ["docker/", "kubepods/", "containerd/"]):
-                    return True
+        content = open("/proc/1/cgroup").read()
+        if any(x in content for x in ("docker", "kubepods", "containerd", "lxc")):
+            return True
     except Exception:
         pass
-    #env var check
-    if os.getenv("container", "").lower() in ["docker", "containerd"]:
-        return True
-    return False
+    return os.getenv("container", "").lower() in {"docker", "containerd", "podman"}
 
 
 def get_service_statuses(env):
@@ -144,6 +140,16 @@ def get_docker_containers():
         "running_containers": containers,
         "count": len(containers)
     }
+
+def get_failed_services(env):
+    if env in ["Docker", "CI", "WSL2", "GitHub Actions"]:
+        return {"success": False, "reason": f"systemctl not available in {env}"}
+    result = run_command(["systemctl", "--failed", "--no-legend", "--plain"])
+    if not result["success"]:
+        return {"success": False, "reason": result["stderr"] or "systemctl unavailable"}
+    failed = [line.split()[0] for line in result["stdout"].splitlines() if line.strip()]
+    return {"success": True, "count": len(failed), "services": failed}
+
 
 def get_disk_details():
     """

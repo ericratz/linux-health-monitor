@@ -1,157 +1,166 @@
-# Linux Health Monitor Agent v2.3
+# Linux Health Monitor Agent v2.4
 
-A lightweight, environment-aware system observability tool that collects system metrics and provides structured health reporting, diagnosis, and recommended remediation actions. Designed for portability and safe execution across: Linux, WSL2, Docker containers, and CI/CD environments.
+A lightweight, environment-aware system observability tool that collects system metrics and generates structured health reports with automated diagnosis and remediation guidance. Designed for safe, portable execution across Linux, WSL2, Docker, and CI/CD environments.
 
-It performs the following:
-
-1. Collects system metrics (CPU, memory, disk, load, network, uptime)
-
-2. Detects execution environment (Linux, WSL2, Docker, CI)
-
-3. Performs optional system feature checks (systemd services, docker CLI, log/disk usage inspection)
-
-4. Generates health analysis (status, alerts, and recommended actions)
-
-5. Outputs structured JSON for automation or logging
-
-*note that some features are not available in all environments.
 ---
 
-## Additional Features
+## What It Does
 
-- CLI Modes (-s for simple output, default for uptime and health check, and -a for all features)
+1. Collects core system metrics — CPU, memory, disk, load, disk I/O, network, uptime, and process count
+2. Detects the execution environment — Linux, WSL2, Docker, CI/GitHub Actions
+3. Checks system features — running services, failed services, Docker containers, log disk usage, and CPU temperature
+4. Evaluates health — threshold-based status (HEALTHY / WARNING / CRITICAL) with alerts, diagnosis, and recommended actions
+5. Outputs structured JSON for automation or an HTML report for human review
 
-- HTML output human-readable report (`--html <file>.html`) (not supported in Docker)
+> Some features gracefully degrade when unavailable (e.g. systemctl in Docker, CPU temperature in WSL2).
 
-## Output from Docker:
+---
+
+## CLI Usage
+
+```bash
+python -m agent.monitor              # default: core metrics + uptime + health
+python -m agent.monitor -s           # simple: core metrics only
+python -m agent.monitor -a           # all: includes processes, services, disk details
+python -m agent.monitor -H           # human-readable: formats bytes, percents, time, and load
+python -m agent.monitor --no-exit-code  # always exit 0 (useful in CI pipelines)
+python -m agent.monitor --html report.html  # write HTML report to reports/report.html
+```
+
+Flags can be combined: `python -m agent.monitor -a -H --no-exit-code`
+
+**Exit codes** (without `--no-exit-code`): `0` HEALTHY · `1` WARNING · `2` CRITICAL
+
+---
+
+## Configurable Thresholds
+
+Health thresholds can be overridden via environment variables:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `HEALTH_CPU_WARN` | 70 | CPU % warning threshold |
+| `HEALTH_CPU_CRIT` | 85 | CPU % critical threshold |
+| `HEALTH_MEM_WARN` | 70 | Memory % warning threshold |
+| `HEALTH_MEM_CRIT` | 85 | Memory % critical threshold |
+| `HEALTH_DISK_WARN` | 80 | Disk % warning threshold |
+| `HEALTH_DISK_CRIT` | 90 | Disk % critical threshold |
+
+```bash
+HEALTH_CPU_CRIT=60 python -m agent.monitor
+```
+
+---
+
+## Example Output
+
+```bash
+docker run linux-health-monitor -a -H
+```
+
 ```json
-ericratz@W530:~/linux-health-monitor$ docker run linux-health-monitor
 {
-  "timestamp": "2026-05-02T22:51:56+00:00",
+  "timestamp": "2026-05-15T01:07:43+00:00",
   "system": {
     "os": "Linux",
     "distro": "Debian GNU/Linux 13 (trixie)",
-    "kernel": "6.6.87.2-microsoft-standard-WSL2",
-    "hostname": "1db012265ab4",
+    "kernel": "6.6.114.1-microsoft-standard-WSL2",
+    "hostname": "b02edfe32c60",
+    "cpu_cores": 8,
     "environment": "Docker"
   },
   "core_metrics": {
-    "cpu": 25.4,
+    "cpu": "2.1%",
     "memory": {
-      "used_percent": 51.9,
-      "available": 2957676544,
-      "swap_used_percent": 0.0
+      "used_percent": "31.4%",
+      "available": "3.93 GB",
+      "swap_used_percent": "0.0%"
     },
     "disk": {
-      "root_used_percent": 0.2,
-      "root_free": 1024091586560
+      "root_used_percent": "2.0%",
+      "root_free": "936.36 GB"
     },
     "load": {
-      "1min": 0.09,
-      "5min": 0.12,
-      "15min": 0.15
+      "1min": "2.8%",
+      "5min": "2.4%",
+      "15min": "2.1%"
+    },
+    "disk_io": {
+      "read_bytes_per_sec": "0.00 B/s",
+      "write_bytes_per_sec": "0.00 B/s"
+    },
+    "processes": {
+      "total": 3,
+      "zombies": 0
     },
     "network": {
-      "bytes_sent": 42,
-      "bytes_received": 648
+      "bytes_sent": "42.00 B",
+      "bytes_received": "388.00 B"
     }
   },
-  "uptime_seconds": 150527,
+  "uptime": "1d 18h 52m 6s",
   "health": {
     "status": "HEALTHY",
-    "diagnosis": [
-      "No issues detected"
-    ]
-  }
+    "alerts": [],
+    "diagnosis": ["No issues detected"],
+    "actions": []
+  },
+  "top_processes": [
+    {
+      "pid": 1,
+      "name": "python",
+      "cpu_percent": "3.3%",
+      "memory_percent": "0.25%"
+    }
+  ]
 }
 ```
 
-## Requirements:
--Python 3.12+
+---
 
--Docker (optional)
+## Architecture
 
-psutil
+```
+agent/
+├── monitor.py          — CLI entry point; orchestrates collection, analysis, and output
+├── system_metrics.py   — collects all system measurements (CPU, memory, disk, processes, etc.)
+├── system_context.py   — detects environment and checks system features (services, Docker, etc.)
+├── health_analysis.py  — evaluates metrics against configurable thresholds
+└── html_report.py      — formats and renders the HTML report
+```
 
-## How to run:
+---
+
+## Requirements
+
+- Python 3.12+
+- `psutil`
+- Docker (optional)
+
+## Running
+
 ```bash
+pip install -r requirements.txt
 python -m agent.monitor
 ```
-(-s for simple, -a for all, and --html <file>.html for HTML output)
 
-## Docker build image:
+## Docker
+
 ```bash
 docker build -t linux-health-monitor .
 docker run linux-health-monitor
+docker run linux-health-monitor -a -H
 ```
 
 ## Testing
+
+```bash
 pytest
+```
 
 ## CI/CD
-Github Actions pipeline includes:
 
-- Installs dependencies
+GitHub Actions pipelines run on every push and pull request to `main`:
 
-- pytest validation
-
-- Validates CLI modes
-
-- Verifies HTML report generation
-
-- Docker build verification
-
-- Pushes image to GitHub Container Registry
-
-## Architecture
-```bash
-__init__.py - package
-
-health_analysis.py - logic
-generate_health_status(ctx)
-generate_alerts(ctx)
-generate_diagnostics(ctx)
-generate_recommendations(ctx,env)
-
-html_report.py - presentation
-format_uptime(seconds)
-format_bytes(num)
-format_network(network)
-format_memory(memory)
-format_disk(disk)
-format_disk_details(features)
-render_card(title, content)
-format_core(core)
-generate_html(data)
-
-monitor.py - orchestration
-class HealthMonitor
-__init__(self)
-collect_core_metrics(self)
-run_health_analysis(self, metrics)
-report(self)
-parse_args()
-write_output(view, html_file=None)
-build_view(data, mode)
-main()
-
-system_context.py - environment
-run_command(command)
-detect_environment()
-get_system_identity(env)
-is_docker()
-get_service_statuses(env)
-get_service_status(name)
-get_docker_containers()
-get_disk_details()
-
-system_metrics.py - collection
-get_cpu_usage()
-get_load_average()
-get_memory_usage()
-get_disk_usage()
-get_directory_usage(path="/var/log")
-get_network_io()
-get_system_uptime()
-get_top_processes(limit=5)
-```
+- **CI** — installs dependencies, runs pytest, validates all CLI modes and flags
+- **CD** — builds and pushes a Docker image to GitHub Container Registry (`ghcr.io`) tagged with `latest` and the commit SHA

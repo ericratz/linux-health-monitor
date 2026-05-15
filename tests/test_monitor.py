@@ -1,5 +1,5 @@
 from agent.monitor import HealthMonitor
-from agent.html_report import generate_html
+from agent.html_report import generate_html, humanize_view
 
 
 def test_report_structure():
@@ -96,3 +96,83 @@ def test_full_pipeline_runs():
     assert isinstance(data, dict)
     assert isinstance(html, str)
     assert len(html) > 0
+
+
+def test_humanize_view_formats_bytes():
+    monitor = HealthMonitor()
+    data = monitor.report()
+    view = {
+        "core_metrics": data["core_metrics"],
+        "features": data.get("features", {}),
+    }
+    humanized = humanize_view(view)
+    net = humanized["core_metrics"]["network"]
+    assert isinstance(net["bytes_sent"], str)
+    assert isinstance(net["bytes_received"], str)
+    mem = humanized["core_metrics"]["memory"]
+    assert isinstance(mem["available"], str)
+
+
+def test_html_has_percent_signs():
+    monitor = HealthMonitor()
+    data = monitor.report()
+    html = generate_html(data)
+    assert "%" in html
+
+
+def test_cpu_snapshot_returns_cpu_and_processes():
+    from agent.system_metrics import get_cpu_snapshot
+    cpu, procs, disk_io = get_cpu_snapshot(interval=0.1)
+    assert isinstance(cpu, (int, float))
+    assert isinstance(procs, list)
+    if procs:
+        assert "pid" in procs[0]
+        assert "cpu_percent" in procs[0]
+        assert "memory_percent" in procs[0]
+    if disk_io is not None:
+        assert "read_bytes_per_sec" in disk_io
+        assert "write_bytes_per_sec" in disk_io
+
+
+def test_process_summary():
+    from agent.system_metrics import get_process_summary
+    result = get_process_summary()
+    assert "total" in result
+    assert "zombies" in result
+    assert result["total"] > 0
+    assert result["zombies"] >= 0
+
+
+def test_cpu_temperature_structure():
+    from agent.system_metrics import get_cpu_temperature
+    result = get_cpu_temperature()
+    assert "success" in result
+    if result["success"]:
+        assert "celsius" in result
+        assert "source" in result
+    else:
+        assert "reason" in result
+
+
+def test_threshold_env_vars(monkeypatch):
+    monkeypatch.setenv("HEALTH_CPU_CRIT", "50")
+    monitor = HealthMonitor()
+    fake_metrics = {
+        "cpu": 60,
+        "memory": {"used_percent": 10},
+        "disk": {"root_used_percent": 10},
+        "load": {"1min": 0.1},
+    }
+    result = monitor.run_health_analysis(fake_metrics)
+    assert result["status"] == "CRITICAL"
+
+
+def test_directory_usage_returns_sizes():
+    from agent.system_metrics import get_directory_usage
+    import os
+    result = get_directory_usage(os.path.dirname(os.path.abspath(__file__)))
+    assert isinstance(result, list)
+    for entry in result:
+        assert "name" in entry
+        assert "size_bytes" in entry
+        assert entry["size_bytes"] >= 0

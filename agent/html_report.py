@@ -70,23 +70,151 @@ def render_card(title, content):
 """
 
 
+def render_services(services):
+    if not services.get("success"):
+        return f'<p class="muted">{services.get("reason", "unavailable")}</p>'
+    rows = "".join(
+        f'<li>{s["service"]}: <span class="mono">{s.get("status", "unknown")}</span></li>'
+        for s in services.get("data") or []
+    )
+    return f"<ul>{rows}</ul>" if rows else '<p class="muted">No services checked</p>'
+
+
+def render_docker(docker):
+    if not docker.get("success"):
+        return f'<p class="muted">{docker.get("reason", "unavailable")}</p>'
+    containers = docker.get("running_containers", [])
+    if not containers:
+        return '<p class="muted">No containers running</p>'
+    rows = "".join(f"<li>{c}</li>" for c in containers)
+    return f"<p>{len(containers)} running</p><ul>{rows}</ul>"
+
+
+def render_disk_details(disk_details):
+    if not disk_details.get("success"):
+        return f'<p class="muted">{disk_details.get("error", "unavailable")}</p>'
+    data = disk_details.get("data") or []
+    if not data:
+        return '<p class="muted">No data</p>'
+    rows = "".join(
+        f"<tr><td>{item['name']}</td><td>{item['size_bytes']}</td></tr>"
+        for item in data
+    )
+    return f'<table><tbody>{rows}</tbody></table>'
+
+
+def render_failed_services(failed):
+    if not failed.get("success"):
+        return f'<p class="muted">{failed.get("reason", "unavailable")}</p>'
+    if failed["count"] == 0:
+        return '<p class="muted">None</p>'
+    rows = "".join(f'<li class="bad">{s}</li>' for s in failed["services"])
+    return f"<ul>{rows}</ul>"
+
+
+def render_cpu_temp(temp):
+    if not temp.get("success"):
+        return f'<p class="muted">{temp.get("reason", "unavailable")}</p>'
+    return f'<p>{temp["celsius"]}°C <span class="muted">({temp["source"]})</span></p>'
+
+
+def render_features_card(features):
+    services_html = render_services(features.get("services") or {})
+    failed_html = render_failed_services(features.get("failed_services") or {})
+    docker_html = render_docker(features.get("docker") or {})
+    disk_html = render_disk_details((features.get("disk_details") or {}).copy())
+    temp_html = render_cpu_temp(features.get("cpu_temperature") or {})
+    return f"""
+<div class="card">
+    <h2>Features</h2>
+    <h3>Services</h3>
+    {services_html}
+    <h3>Failed Services</h3>
+    {failed_html}
+    <h3>Docker</h3>
+    {docker_html}
+    <h3>Disk Usage <span class="muted">(/var/log)</span></h3>
+    {disk_html}
+    <h3>CPU Temperature</h3>
+    {temp_html}
+</div>
+"""
+
+
+def format_percents(core):
+    core = dict(core)
+    if isinstance(core.get("cpu"), (int, float)):
+        core["cpu"] = f"{core['cpu']}%"
+    memory = dict(core.get("memory", {}))
+    for key in ("used_percent", "swap_used_percent"):
+        if isinstance(memory.get(key), (int, float)):
+            memory[key] = f"{memory[key]}%"
+    core["memory"] = memory
+    disk = dict(core.get("disk", {}))
+    if isinstance(disk.get("root_used_percent"), (int, float)):
+        disk["root_used_percent"] = f"{disk['root_used_percent']}%"
+    core["disk"] = disk
+    return core
+
+
+def format_process_percents(procs):
+    result = []
+    for p in procs:
+        p = dict(p)
+        if isinstance(p.get("cpu_percent"), (int, float)):
+            p["cpu_percent"] = f"{p['cpu_percent']}%"
+        if isinstance(p.get("memory_percent"), (int, float)):
+            p["memory_percent"] = f"{p['memory_percent']}%"
+        result.append(p)
+    return result
+
+
 def format_core(core):
     core = dict(core)
-
     core["memory"] = format_memory(core.get("memory", {}))
     core["disk"] = format_disk(core.get("disk", {}))
     core["network"] = format_network(core.get("network", {}))
-
     return core
+
+
+def humanize_view(view):
+    """Format bytes, percentages, time, and normalized load for human-readable JSON output (-H)."""
+    view = dict(view)
+    cores = view.get("system", {}).get("cpu_cores") or 1
+    if "core_metrics" in view:
+        core = format_percents(dict(view["core_metrics"]))
+        core["memory"] = format_memory(core.get("memory", {}))
+        core["disk"] = format_disk(core.get("disk", {}))
+        core["network"] = format_network(core.get("network", {}))
+        load = dict(core.get("load", {}))
+        for key in ("1min", "5min", "15min"):
+            if isinstance(load.get(key), (int, float)):
+                load[key] = f"{round(load[key] / cores * 100, 1)}%"
+        core["load"] = load
+        if core.get("disk_io"):
+            dio = dict(core["disk_io"])
+            for key in ("read_bytes_per_sec", "write_bytes_per_sec"):
+                if isinstance(dio.get(key), (int, float)):
+                    dio[key] = f"{format_bytes(dio[key])}/s"
+            core["disk_io"] = dio
+        view["core_metrics"] = core
+    if "uptime_seconds" in view:
+        view["uptime"] = format_uptime(view.pop("uptime_seconds"))
+    if view.get("top_processes"):
+        view["top_processes"] = format_process_percents(view["top_processes"])
+    if view.get("features"):
+        view["features"] = format_disk_details(view["features"])
+    return view
 
 
 def generate_html(data):
     system = data.get("system", {})
-    core = format_core(data.get("core_metrics", {}))
+    core = format_percents(format_core(data.get("core_metrics", {})))
     uptime = data.get("uptime_seconds")
     if uptime is not None:
         uptime = format_uptime(uptime)
-    top_processes = data.get("top_processes")
+    _raw_procs = data.get("top_processes")
+    top_processes = format_process_percents(_raw_procs) if _raw_procs else None
     features = format_disk_details(data.get("features", {}))
     status = data.get("health", {}).get("status")
     diagnosis = data.get("health", {}).get("diagnosis", [])
@@ -112,12 +240,26 @@ def generate_html(data):
         .good {{ color: #4caf50; }}
         .warn {{ color: #ff9800; }}
         .bad {{ color: #f44336; }}
+        .muted {{ color: #888; font-size: 0.9em; }}
+        .mono {{ font-family: monospace; }}
         pre {{
             background: #111;
             padding: 10px;
             border-radius: 6px;
             overflow-x: auto;
         }}
+        h3 {{
+            margin: 14px 0 6px;
+            font-size: 0.95em;
+            color: #aaa;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }}
+        ul {{ margin: 4px 0 0 18px; padding: 0; }}
+        li {{ margin: 2px 0; }}
+        table {{ border-collapse: collapse; width: 100%; margin-top: 4px; }}
+        td {{ padding: 4px 12px 4px 0; font-size: 0.95em; }}
+        td:last-child {{ color: #aaa; text-align: right; }}
     </style>
 </head>
 
@@ -131,7 +273,12 @@ def generate_html(data):
     html += render_card("Core Metrics", json.dumps(core, indent=2))
 
     if uptime is not None:
-        html += render_card("Uptime", uptime)
+        html += f"""
+<div class="card">
+    <h2>Uptime</h2>
+    <p>{uptime}</p>
+</div>
+"""
 
     if status:
         css_class = {
@@ -139,12 +286,13 @@ def generate_html(data):
             "WARNING": "warn",
             "CRITICAL": "bad"
         }.get(status, "warn")
+        diag_items = "".join(f"<li>{d}</li>" for d in diagnosis)
 
         html += f"""
 <div class="card">
     <h2>Health</h2>
-    <p class="{css_class}">{status}</p>
-    <pre>{json.dumps(diagnosis, indent=2)}</pre>
+    <p class="{css_class}" style="font-size:1.2em; font-weight:bold; margin:0 0 8px">{status}</p>
+    <ul>{diag_items}</ul>
 </div>
 """
 
@@ -152,7 +300,7 @@ def generate_html(data):
         html += render_card("Top Processes", json.dumps(top_processes, indent=2))
 
     if features:
-        html += render_card("Features", json.dumps(features, indent=2))
+        html += render_features_card(features)
 
     html += """
 </body>
