@@ -1,12 +1,13 @@
 #monitor.py - main code driver
 from agent.system_metrics import (
-    get_cpu_usage,
+    get_cpu_snapshot,
     get_memory_usage,
     get_disk_usage,
     get_load_average,
     get_network_io,
     get_system_uptime,
-    get_top_processes
+    get_process_summary,
+    get_cpu_temperature,
 )
 
 from agent.health_analysis import (
@@ -19,11 +20,12 @@ from agent.health_analysis import (
 from agent.system_context import (
     detect_environment,
     get_service_statuses,
+    get_failed_services,
     get_docker_containers,
     get_system_identity,
-    get_disk_details
+    get_disk_details,
 )
-from agent.html_report import generate_html
+from agent.html_report import generate_html, humanize_view
 from datetime import datetime, timezone
 import argparse
 import json
@@ -56,12 +58,16 @@ class HealthMonitor:
     def collect_core_metrics(self):
         """
         Collects CPU, memory, disk, and load metrics.
+        Also primes and stores top_processes as a side effect of the shared CPU snapshot.
         """
+        cpu, self._top_procs, disk_io = get_cpu_snapshot()
         return {
-            "cpu": get_cpu_usage(),
+            "cpu": cpu,
             "memory": get_memory_usage(),
             "disk": get_disk_usage(),
             "load": get_load_average(),
+            "disk_io": disk_io,
+            "processes": get_process_summary(),
         }
 
     def run_health_analysis(self, metrics):
@@ -97,12 +103,14 @@ class HealthMonitor:
                 **metrics,
                 "network": get_network_io(),
             },
-            "top_processes": get_top_processes(),
+            "top_processes": self._top_procs,
             "health": analysis,
             "features": {
-            "services": get_service_statuses(self.env),
-            "docker": get_docker_containers(),
-            "disk_details": get_disk_details(),
+                "services": get_service_statuses(self.env),
+                "failed_services": get_failed_services(self.env),
+                "docker": get_docker_containers(),
+                "disk_details": get_disk_details(),
+                "cpu_temperature": get_cpu_temperature(),
             },
         }
 
@@ -115,6 +123,16 @@ def parse_args():
     parser.add_argument("-s", "--simple", action="store_true")
     parser.add_argument("-a", "--all", action="store_true")
     parser.add_argument("--html", metavar="FILE", help="Write HTML report")
+    parser.add_argument(
+        "-H", "--human-readable",
+        action="store_true",
+        help="Format byte values as human-readable strings in JSON output"
+    )
+    parser.add_argument(
+        "--no-exit-code",
+        action="store_true",
+        help="Always exit 0 regardless of health status (useful in CI)"
+    )
     return parser.parse_args()
 
 def write_output(view, html_file=None):
@@ -191,16 +209,20 @@ def main():
     #build view
     view = build_view(data, mode)
 
+    #apply human-readable formatting to byte values if requested
+    if args.human_readable:
+        view = humanize_view(view)
+
     #write output
     write_output(view, args.html)
 
-    #exit with appropriate code
-    status = data["health"]["status"]
-
-    if status == "WARNING":
-        exit(1)
-    elif status == "CRITICAL":
-        exit(2)    
+    #exit with appropriate code (suppressed for CI testing)
+    if not args.no_exit_code:
+        status = data["health"]["status"]
+        if status == "WARNING":
+            exit(1)
+        elif status == "CRITICAL":
+            exit(2)
     exit(0)
 
 

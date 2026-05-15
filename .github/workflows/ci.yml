@@ -34,6 +34,12 @@ jobs:
           python -m agent.monitor  > /dev/null
           python -m agent.monitor -a > /dev/null
 
+      - name: Test new flags
+        run: |
+          python -m agent.monitor --no-exit-code > /dev/null
+          python -m agent.monitor -H > /dev/null
+          python -m agent.monitor -a --no-exit-code > /dev/null
+
       - name: Test HTML output
         run: |
           python -m agent.monitor --html report.html

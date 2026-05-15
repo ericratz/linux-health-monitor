@@ -25,38 +25,47 @@ It performs the following:
 
 ## Output from Docker:
 ```json
-ericratz@W530:~/linux-health-monitor$ docker run linux-health-monitor
+ericratz@W530:~/linux-health-monitor$ docker run linux-agent-monitor
 {
-  "timestamp": "2026-05-02T22:51:56+00:00",
+  "timestamp": "2026-05-15T02:26:40+00:00",
   "system": {
     "os": "Linux",
     "distro": "Debian GNU/Linux 13 (trixie)",
-    "kernel": "6.6.87.2-microsoft-standard-WSL2",
-    "hostname": "1db012265ab4",
+    "kernel": "6.6.114.1-microsoft-standard-WSL2",
+    "hostname": "59d2e0b6bd82",
+    "cpu_cores": 8,
     "environment": "Docker"
   },
   "core_metrics": {
-    "cpu": 25.4,
+    "cpu": 4.1,
     "memory": {
-      "used_percent": 51.9,
-      "available": 2957676544,
+      "used_percent": 31.5,
+      "available": 4215689216,
       "swap_used_percent": 0.0
     },
     "disk": {
-      "root_used_percent": 0.2,
-      "root_free": 1024091586560
+      "root_used_percent": 2.0,
+      "root_free": 1005406380032
     },
     "load": {
-      "1min": 0.09,
-      "5min": 0.12,
-      "15min": 0.15
+      "1min": 0.66,
+      "5min": 0.2,
+      "15min": 0.09
+    },
+    "disk_io": {
+      "read_bytes_per_sec": 191146,
+      "write_bytes_per_sec": 13653
+    },
+    "processes": {
+      "total": 1,
+      "zombies": 0
     },
     "network": {
       "bytes_sent": 42,
-      "bytes_received": 648
+      "bytes_received": 538
     }
   },
-  "uptime_seconds": 150527,
+  "uptime_seconds": 159063,
   "health": {
     "status": "HEALTHY",
     "diagnosis": [
@@ -102,56 +111,3 @@ Github Actions pipeline includes:
 - Docker build verification
 
 - Pushes image to GitHub Container Registry
-
-## Architecture
-```bash
-__init__.py - package
-
-health_analysis.py - logic
-generate_health_status(ctx)
-generate_alerts(ctx)
-generate_diagnostics(ctx)
-generate_recommendations(ctx,env)
-
-html_report.py - presentation
-format_uptime(seconds)
-format_bytes(num)
-format_network(network)
-format_memory(memory)
-format_disk(disk)
-format_disk_details(features)
-render_card(title, content)
-format_core(core)
-generate_html(data)
-
-monitor.py - orchestration
-class HealthMonitor
-__init__(self)
-collect_core_metrics(self)
-run_health_analysis(self, metrics)
-report(self)
-parse_args()
-write_output(view, html_file=None)
-build_view(data, mode)
-main()
-
-system_context.py - environment
-run_command(command)
-detect_environment()
-get_system_identity(env)
-is_docker()
-get_service_statuses(env)
-get_service_status(name)
-get_docker_containers()
-get_disk_details()
-
-system_metrics.py - collection
-get_cpu_usage()
-get_load_average()
-get_memory_usage()
-get_disk_usage()
-get_directory_usage(path="/var/log")
-get_network_io()
-get_system_uptime()
-get_top_processes(limit=5)
-```
