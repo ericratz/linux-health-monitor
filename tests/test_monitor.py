@@ -122,7 +122,8 @@ def test_html_has_percent_signs():
 
 def test_cpu_snapshot_returns_cpu_and_processes():
     from agent.system_metrics import get_cpu_snapshot
-    cpu, procs, disk_io = get_cpu_snapshot(interval=0.1)
+    cpu, procs, disk_io, pressure = get_cpu_snapshot(interval=0.1)
+    assert isinstance(pressure, dict)
     assert isinstance(cpu, (int, float))
     assert isinstance(procs, list)
     if procs:

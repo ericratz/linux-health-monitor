@@ -20,7 +20,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Install test dependencies
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
@@ -28,22 +28,70 @@ jobs:
       - name: Run pytest
         run: pytest
 
+      # The agent must need nothing beyond the stdlib. A fresh interpreter with
+      # an emptied sys.path prefix would still find installed packages, so
+      # instead assert that no agent module pulls in a third-party import.
+      - name: Verify no third-party runtime dependency
+        run: |
+          python - <<'EOF'
+          import sys
+          before = set(sys.modules)
+          import agent.monitor, agent.system_metrics, agent.system_context
+          import agent.app_checks, agent.html_report, agent.health_analysis, agent.shell
+          import pathlib, sysconfig
+          stdlib = pathlib.Path(sysconfig.get_paths()["stdlib"]).resolve()
+          foreign = []
+          for name, module in sys.modules.items():
+              if name in before or name.startswith("agent"):
+                  continue
+              path = getattr(module, "__file__", None)
+              if not path:
+                  continue
+              resolved = pathlib.Path(path).resolve()
+              if stdlib not in resolved.parents:
+                  foreign.append(f"{name} -> {resolved}")
+          if foreign:
+              print("Unexpected non-stdlib imports:")
+              print("\n".join(foreign))
+              sys.exit(1)
+          print("OK: agent imports only the standard library")
+          EOF
+
+      # --no-exit-code throughout: a busy runner can legitimately exceed the
+      # default thresholds, and a WARNING exit code is not a build failure.
       - name: Test CLI modes
         run: |
-          python -m agent.monitor -s > /dev/null
-          python -m agent.monitor > /dev/null
-          python -m agent.monitor -a > /dev/null
+          python -m agent.monitor -s --no-exit-code > /dev/null
+          python -m agent.monitor --no-exit-code > /dev/null
+          python -m agent.monitor -a --no-exit-code > /dev/null
 
       - name: Test flags
         run: |
           python -m agent.monitor -H --no-exit-code > /dev/null
           python -m agent.monitor -a -H --no-exit-code > /dev/null
+          python -m agent.monitor --version
+
+      - name: Test exit codes
+        run: |
+          HEALTH_CPU_CRIT=0 python -m agent.monitor > /dev/null && \
+            { echo "expected a non-zero exit for CRITICAL"; exit 1; }
+          HEALTH_CPU_CRIT=0 python -m agent.monitor --no-exit-code > /dev/null
 
       - name: Test configurable thresholds
         run: |
           HEALTH_CPU_CRIT=1 python -m agent.monitor --no-exit-code > /dev/null
 
+      - name: Test app endpoint checks
+        run: |
+          python -m http.server 8765 --bind 127.0.0.1 &
+          sleep 2
+          HEALTH_APP_ENDPOINTS="local=http://127.0.0.1:8765/" \
+            python -m agent.monitor -a --no-exit-code | grep -q '"app_checks"'
+          # an unreachable endpoint must be reported, not raised
+          HEALTH_APP_ENDPOINTS="down=http://127.0.0.1:9/" \
+            python -m agent.monitor -a --no-exit-code | grep -q '"error"'
+
       - name: Test HTML output
         run: |
-          python -m agent.monitor -a --html report.html
+          python -m agent.monitor -a --html report.html --no-exit-code
           test -f reports/report.html

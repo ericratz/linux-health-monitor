@@ -1,2 +1,5 @@
-psutil
+# The agent itself has no runtime dependencies: it reads /proc and /sys and
+# shells out to core userland tools, so `python3 -m agent.monitor` runs on a
+# stock interpreter with nothing installed.
+# Test-only:
 pytest

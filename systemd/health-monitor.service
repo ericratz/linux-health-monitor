@@ -1,0 +1,72 @@
+[Unit]
+# Runs on the host, not in a container: systemctl, journalctl, ss -tulnp and
+# host-scope process/disk views are meaningless from inside a namespace.
+Description=Linux Health Monitor (oneshot collection)
+Documentation=https://github.com/ericratz/linux-health-monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+
+# Root is required for the privileged parts of the report: process names in
+# `ss -tulnp`, the system journal, and unit state via systemctl. Everything
+# still degrades gracefully if you drop this to an unprivileged user, you just
+# get fewer fields.
+User=root
+
+WorkingDirectory=/opt/linux-health-monitor
+ExecStart=/usr/bin/python3 -m agent.monitor --all --html report.html --no-exit-code
+
+Environment=PYTHONPATH=/opt/linux-health-monitor
+Environment=PYTHONUNBUFFERED=1
+
+# --- Per-host configuration -------------------------------------------------
+# Units worth watching. Differs per host: a Docker host watches docker.service,
+# a rootless-Podman host watches its Quadlet unit.
+#   node1: Environment=HEALTH_SERVICES=nginx,docker,keepalived
+#   node2: Environment=HEALTH_SERVICES=nginx,keepalived
+Environment=HEALTH_SERVICES=nginx,keepalived
+
+# Rootless Podman: containers belong to the user that started them, so root's
+# `podman ps` sees an empty store. Naming the owner lets the monitor look in
+# the right place (node2 only; leave unset on a Docker host).
+#Environment=HEALTH_CONTAINER_USER=brp
+
+# Application endpoints, as name=url pairs. Pointing each node at BOTH nodes
+# makes either node's report a fleet-wide dashboard. Unset = feature omitted.
+#Environment=HEALTH_APP_ENDPOINTS=node1-health=http://192.168.71.251:8000/health,node2-health=http://192.168.71.252:8000/health,fleet-slo=http://192.168.71.251:8000/slo
+Environment=HEALTH_APP_TIMEOUT=2
+
+# How far back to count journal errors. Keep this at or below the timer
+# interval's order of magnitude, or successive reports re-count the same errors.
+Environment=HEALTH_JOURNAL_WINDOW=-1h
+
+# Alert thresholds (percentages).
+#Environment=HEALTH_CPU_WARN=70
+#Environment=HEALTH_CPU_CRIT=85
+#Environment=HEALTH_MEM_WARN=70
+#Environment=HEALTH_MEM_CRIT=85
+#Environment=HEALTH_DISK_WARN=80
+#Environment=HEALTH_DISK_CRIT=90
+
+# A collection run samples for well under a second; if it wedges on a hung
+# mount or an unreachable endpoint, fail rather than pile up runs.
+TimeoutStartSec=60
+
+# --- Hardening --------------------------------------------------------------
+# Deliberately modest. This service's whole job is to observe the host, so
+# sandboxing that hides /proc, /sys or the journal defeats the point.
+ProtectSystem=full
+ReadWritePaths=/opt/linux-health-monitor/reports
+PrivateTmp=yes
+
+# IMPORTANT: if you set HEALTH_CONTAINER_USER above to inspect rootless
+# Podman, comment BOTH lines below out. `su` is setuid, so NoNewPrivileges
+# blocks it outright, and ProtectHome hides the target user's home directory
+# that `su -` needs to build their login session.
+NoNewPrivileges=yes
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -3,6 +3,7 @@ from agent.system_metrics import (
     get_cpu_snapshot,
     get_memory_usage,
     get_disk_usage,
+    get_filesystems,
     get_load_average,
     get_network_io,
     get_system_uptime,
@@ -21,11 +22,21 @@ from agent.system_context import (
     detect_environment,
     get_service_statuses,
     get_failed_services,
-    get_docker_containers,
+    get_containers,
     get_system_identity,
     get_disk_details,
+    get_listening_ports,
+)
+from agent.app_checks import get_app_checks
+from agent.host_checks import (
+    get_journal_errors,
+    get_time_sync,
+    get_security_module,
+    get_firewall,
+    get_reboot_required,
 )
 from agent.html_report import generate_html, humanize_view
+from agent import __version__
 from datetime import datetime, timezone
 import argparse
 import json
@@ -60,33 +71,54 @@ class HealthMonitor:
         Collects CPU, memory, disk, and load metrics.
         Also primes and stores top_processes as a side effect of the shared CPU snapshot.
         """
-        cpu, self._top_procs, disk_io = get_cpu_snapshot()
+        cpu, self._top_procs, disk_io, pressure = get_cpu_snapshot()
         return {
             "cpu": cpu,
             "memory": get_memory_usage(),
             "disk": get_disk_usage(),
+            "filesystems": get_filesystems(),
             "load": get_load_average(),
             "disk_io": disk_io,
+            "pressure": pressure,
             "processes": get_process_summary(),
         }
 
-    def run_health_analysis(self, metrics):
+    def run_health_analysis(self, metrics, features=None, os_family="unknown"):
         """
         Generates a health report from relevant metrics.
+
+        Features are optional so the analysis can be exercised with metrics
+        alone; when present, they let a diagnosis cite the journal, a pending
+        reboot or an unsynchronized clock.
         """
+        features = features or {}
         mem = metrics["memory"]["used_percent"]
         disk = metrics["disk"]["root_used_percent"]
+        journal = features.get("journal_errors") or {}
+        time_sync = features.get("time_sync") or {}
+        reboot = features.get("reboot_required") or {}
+        failed = features.get("failed_services") or {}
         ctx = {
             "cpu": metrics["cpu"],
             "mem_used": mem,
             "disk_used": disk,
             "load": metrics["load"],
+            "filesystems": metrics.get("filesystems"),
+            "pressure": metrics.get("pressure"),
+            "processes": metrics.get("processes"),
+            "journal_errors": journal if journal.get("success") else None,
+            "failed_services": failed.get("count") if failed.get("success") else None,
+            #only a positive answer is actionable; an unavailable check is not
+            "time_desynchronized": (
+                time_sync.get("success") and not time_sync.get("synchronized")
+            ),
+            "reboot_required": reboot.get("reboot_required") if reboot.get("success") else None,
         }
         return {
             "status": generate_health_status(ctx),
             "alerts": generate_alerts(ctx),
             "diagnosis": generate_diagnostics(ctx),
-            "actions": generate_recommendations(ctx, self.env),
+            "actions": generate_recommendations(ctx, self.env, os_family),
         }
 
     def report(self):
@@ -94,10 +126,28 @@ class HealthMonitor:
         Generates a comprehensive system health report into a dictionary.
         """
         metrics = self.collect_core_metrics()
-        analysis = self.run_health_analysis(metrics)
+        identity = get_system_identity(self.env)
+        os_family = identity.get("os_family", "unknown")
+        #features are collected before analysis so a diagnosis can cite them
+        features = {
+            "services": get_service_statuses(self.env),
+            "failed_services": get_failed_services(self.env),
+            "containers": get_containers(),
+            "listening_ports": get_listening_ports(),
+            "disk_details": get_disk_details(),
+            "cpu_temperature": get_cpu_temperature(),
+            "journal_errors": get_journal_errors(),
+            "time_sync": get_time_sync(),
+            "security_module": get_security_module(),
+            "firewall": get_firewall(),
+            "reboot_required": get_reboot_required(os_family),
+            "app_checks": get_app_checks(),
+        }
+        analysis = self.run_health_analysis(metrics, features, os_family)
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "system": get_system_identity(self.env),
+            "agent_version": __version__,
+            "system": identity,
             "uptime_seconds": get_system_uptime(),
             "core_metrics": {
                 **metrics,
@@ -105,13 +155,7 @@ class HealthMonitor:
             },
             "top_processes": self._top_procs,
             "health": analysis,
-            "features": {
-                "services": get_service_statuses(self.env),
-                "failed_services": get_failed_services(self.env),
-                "docker": get_docker_containers(),
-                "disk_details": get_disk_details(),
-                "cpu_temperature": get_cpu_temperature(),
-            },
+            "features": features,
         }
 
 
@@ -120,6 +164,11 @@ def parse_args():
     Parses command-line arguments.
     """
     parser = argparse.ArgumentParser(description="Linux Health Monitor")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"linux-health-monitor {__version__}"
+    )
     parser.add_argument("-s", "--simple", action="store_true")
     parser.add_argument("-a", "--all", action="store_true")
     parser.add_argument("--html", metavar="FILE", help="Write HTML report")
@@ -158,6 +207,7 @@ def build_view(data, mode):
     """
     base = {
         "timestamp": data["timestamp"],
+        "agent_version": data.get("agent_version"),
         "system": data["system"],
         "core_metrics": data["core_metrics"],
     }

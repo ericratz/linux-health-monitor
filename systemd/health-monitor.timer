@@ -1,0 +1,19 @@
+[Unit]
+Description=Run Linux Health Monitor every 2 minutes
+Documentation=https://github.com/ericratz/linux-health-monitor
+
+[Timer]
+# First run shortly after boot, then every 2 minutes measured from the end of
+# the previous run (OnUnitActiveSec), so a slow collection cannot overlap the
+# next one the way a fixed wall-clock schedule would.
+OnBootSec=1min
+OnUnitActiveSec=2min
+AccuracySec=10s
+Unit=health-monitor.service
+
+# Both nodes are identical hardware; a small jitter keeps them from hitting a
+# shared endpoint in lockstep.
+RandomizedDelaySec=10s
+
+[Install]
+WantedBy=timers.target

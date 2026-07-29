@@ -19,147 +19,187 @@
         .good { color: #4caf50; }
         .warn { color: #ff9800; }
         .bad { color: #f44336; }
+        .muted { color: #888; font-size: 0.9em; }
+        .mono { font-family: monospace; }
         pre {
             background: #111;
             padding: 10px;
             border-radius: 6px;
             overflow-x: auto;
         }
+        h3 {
+            margin: 14px 0 6px;
+            font-size: 0.95em;
+            color: #aaa;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        ul { margin: 4px 0 0 18px; padding: 0; }
+        li { margin: 2px 0; }
+        table { border-collapse: collapse; width: 100%; margin-top: 4px; }
+        td { padding: 4px 12px 4px 0; font-size: 0.95em; }
+        td:last-child { color: #aaa; text-align: right; }
+        th {
+            padding: 4px 12px 4px 0;
+            font-size: 0.8em;
+            color: #888;
+            text-align: left;
+            font-weight: normal;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid #2a2e37;
+        }
+        th:last-child { text-align: right; }
     </style>
 </head>
 
 <body>
 
 <h1>Linux Health Monitor</h1>
-<p>Generated: 2026-05-02 22:42:06 UTC</p>
+<p>Generated: 2026-07-29 23:18:42 UTC
+ &middot; <strong>W530</strong><span class="muted"> &middot; agent v3.0.0</span></p>
 
 <div class="card">
     <h2>System</h2>
     <pre>{
-  "os": "Linux",
-  "distro": "Ubuntu 20.04.6 LTS",
-  "kernel": "6.6.87.2-microsoft-standard-WSL2",
-  "hostname": "W530",
-  "environment": "WSL2"
+  &quot;os&quot;: &quot;Linux&quot;,
+  &quot;distro&quot;: &quot;Ubuntu 26.04 LTS&quot;,
+  &quot;kernel&quot;: &quot;6.18.33.2-microsoft-standard-WSL2&quot;,
+  &quot;hostname&quot;: &quot;W530&quot;,
+  &quot;cpu_cores&quot;: 8,
+  &quot;os_family&quot;: &quot;debian&quot;,
+  &quot;environment&quot;: &quot;WSL2&quot;
 }</pre>
 </div>
 
 <div class="card">
     <h2>Core Metrics</h2>
     <pre>{
-  "cpu": 2.5,
-  "memory": {
-    "used_percent": 53.0,
-    "available": "2.69 GB",
-    "swap_used_percent": 0.0
+  &quot;cpu&quot;: &quot;0.8%&quot;,
+  &quot;memory&quot;: {
+    &quot;used_percent&quot;: &quot;33.76%&quot;,
+    &quot;available&quot;: &quot;3.80 GB&quot;,
+    &quot;swap_used_percent&quot;: &quot;0.0%&quot;
   },
-  "disk": {
-    "root_used_percent": 0.7,
-    "root_free": "949.15 GB"
+  &quot;disk&quot;: {
+    &quot;root_used_percent&quot;: &quot;0.44%&quot;,
+    &quot;root_free&quot;: &quot;951.47 GB&quot;
   },
-  "load": {
-    "1min": 0.37,
-    "5min": 0.29,
-    "15min": 0.19
+  &quot;load&quot;: {
+    &quot;1min&quot;: 0.57,
+    &quot;5min&quot;: 0.45,
+    &quot;15min&quot;: 0.29
   },
-  "network": {
-    "bytes_sent": "697.61 MB",
-    "bytes_received": "631.20 MB"
+  &quot;disk_io&quot;: {
+    &quot;read_bytes_per_sec&quot;: 0,
+    &quot;write_bytes_per_sec&quot;: 0
+  },
+  &quot;pressure&quot;: {
+    &quot;iowait_percent&quot;: &quot;0.0%&quot;,
+    &quot;runnable&quot;: 1,
+    &quot;swap_in_bytes_per_sec&quot;: &quot;0.00 B/s&quot;,
+    &quot;swap_out_bytes_per_sec&quot;: &quot;0.00 B/s&quot;,
+    &quot;major_faults_per_sec&quot;: 0
+  },
+  &quot;processes&quot;: {
+    &quot;total&quot;: 63,
+    &quot;zombies&quot;: 0,
+    &quot;blocked&quot;: 0
+  },
+  &quot;network&quot;: {
+    &quot;bytes_sent&quot;: &quot;171.85 MB&quot;,
+    &quot;bytes_received&quot;: &quot;297.24 MB&quot;
   }
 }</pre>
 </div>
 
 <div class="card">
+    <h2>Filesystems</h2>
+    <table><thead><tr><th>Mount</th><th>Used</th><th>Free</th><th>Device</th></tr></thead><tbody><tr><td><span class="mono">/mnt/wsl/docker-desktop/docker-desktop-user-distro</span></td><td class="good">53.86%</td><td>53.87 MB free</td><td>/dev/sde</td></tr><tr><td><span class="mono">/</span></td><td class="good">0.44%</td><td>951.47 GB free</td><td>/dev/sdf</td></tr></tbody></table>
+</div>
+
+<div class="card">
     <h2>Uptime</h2>
-    <pre>1d 17h 38m 56s</pre>
+    <p>16h 31m 32s</p>
 </div>
 
 <div class="card">
     <h2>Health</h2>
-    <p class="good">HEALTHY</p>
-    <pre>[
-  "No issues detected"
-]</pre>
+    <p class="good" style="font-size:1.2em; font-weight:bold; margin:0 0 8px">HEALTHY</p>
+    <ul><li>6 error(s) in the journal -&gt; mostly from kernel</li></ul>
+    <h3>Suggested Commands <span class="muted">(not run automatically)</span></h3>
+    <ul><li class="mono">Run: journalctl -p err --since -24h</li><li class="mono">Check logs: journalctl -u &lt;service&gt; -b --no-pager</li></ul>
 </div>
 
 <div class="card">
     <h2>Top Processes</h2>
     <pre>[
   {
-    "pid": 18719,
-    "name": "node",
-    "cpu_percent": 33.3,
-    "memory_percent": 15.05
+    &quot;pid&quot;: 121352,
+    &quot;name&quot;: &quot;python3&quot;,
+    &quot;cpu_percent&quot;: &quot;3.33%&quot;,
+    &quot;memory_percent&quot;: &quot;0.42%&quot;
   },
   {
-    "pid": 18604,
-    "name": "node",
-    "cpu_percent": 4.8,
-    "memory_percent": 2.16
+    &quot;pid&quot;: 96354,
+    &quot;name&quot;: &quot;MainThread&quot;,
+    &quot;cpu_percent&quot;: &quot;0.0%&quot;,
+    &quot;memory_percent&quot;: &quot;8.03%&quot;
   },
   {
-    "pid": 67563,
-    "name": "python3",
-    "cpu_percent": 4.7,
-    "memory_percent": 0.25
+    &quot;pid&quot;: 95758,
+    &quot;name&quot;: &quot;2.1.219&quot;,
+    &quot;cpu_percent&quot;: &quot;0.0%&quot;,
+    &quot;memory_percent&quot;: &quot;6.01%&quot;
   },
   {
-    "pid": 19022,
-    "name": "node",
-    "cpu_percent": 0.0,
-    "memory_percent": 19.63
+    &quot;pid&quot;: 96278,
+    &quot;name&quot;: &quot;MainThread&quot;,
+    &quot;cpu_percent&quot;: &quot;0.0%&quot;,
+    &quot;memory_percent&quot;: &quot;2.26%&quot;
   },
   {
-    "pid": 21985,
-    "name": "node",
-    "cpu_percent": 0.0,
-    "memory_percent": 2.31
+    &quot;pid&quot;: 104287,
+    &quot;name&quot;: &quot;MainThread&quot;,
+    &quot;cpu_percent&quot;: &quot;0.0%&quot;,
+    &quot;memory_percent&quot;: &quot;2.03%&quot;
   }
 ]</pre>
 </div>
 
 <div class="card">
+    <h2>Application Endpoints</h2>
+    <p>3/3 healthy</p><table><thead><tr><th>Endpoint</th><th>Status</th><th>Reported</th><th>Latency</th></tr></thead><tbody><tr><td>node1-health</td><td class="good">200</td><td>ok</td><td>18.0 ms</td></tr><tr><td>node2-health</td><td class="good">200</td><td>ok</td><td>1.1 ms</td></tr><tr><td>fleet-slo</td><td class="good">200</td><td>unavailable</td><td>0.9 ms</td></tr></tbody></table>
+</div>
+<div class="card">
+    <h2>Journal Errors</h2>
+    <p class="bad">6 error(s) since -24h</p><ul><li>kernel: <span class="mono">6</span></li></ul><ul><li><span class="muted">kernel</span> WSL (135) ERROR: CheckConnection: getaddrinfo() failed: -5</li><li><span class="muted">kernel</span> WSL (135) ERROR: CheckConnection: getaddrinfo() failed: -3</li><li><span class="muted">kernel</span> WSL (135) ERROR: CheckConnection: getaddrinfo() failed: -5</li><li><span class="muted">kernel</span> WSL (135) ERROR: CheckConnection: getaddrinfo() failed: -5</li><li><span class="muted">kernel</span> WSL (135) ERROR: CheckConnection: getaddrinfo() failed: -5</li></ul>
+</div>
+<div class="card">
+    <h2>Host Posture</h2>
+    <h3>Time Synchronization</h3>
+    <p class="good">synchronized</p><p class="muted">chronyd &middot; America/Denver</p>
+    <h3>Access Control</h3>
+    <p><span class="mono">apparmor</span>: <span class="warn">disabled</span></p>
+    <h3>Firewall</h3>
+    <p class="warn">No active firewall</p>
+    <h3>Reboot Required</h3>
+    <p class="good">No</p>
+</div>
+<div class="card">
     <h2>Features</h2>
-    <pre>{
-  "services": {
-    "feature": "services",
-    "success": false,
-    "reason": "systemctl not available in WSL2",
-    "data": null
-  },
-  "docker": {
-    "feature": "docker",
-    "success": true,
-    "running_containers": [],
-    "count": 0
-  },
-  "disk_details": {
-    "feature": "disk_details",
-    "success": true,
-    "data": [
-      {
-        "name": "dpkg.log",
-        "size_bytes": "601.95 KB"
-      },
-      {
-        "name": "lastlog",
-        "size_bytes": "285.73 KB"
-      },
-      {
-        "name": "alternatives.log",
-        "size_bytes": "65.66 KB"
-      },
-      {
-        "name": "private",
-        "size_bytes": "4.00 KB"
-      },
-      {
-        "name": "dist-upgrade",
-        "size_bytes": "4.00 KB"
-      }
-    ]
-  }
-}</pre>
+    <h3>Services</h3>
+    <p class="muted">systemctl not available in WSL2</p>
+    <h3>Failed Services</h3>
+    <p class="muted">systemctl not available in WSL2</p>
+    <h3>Containers</h3>
+    <p class="muted">no container runtime available (tried: docker, podman)</p>
+    <h3>Listening Ports</h3>
+    <table><thead><tr><th>Port</th><th>Address</th><th>Process</th></tr></thead><tbody><tr><td><span class="mono">53/tcp</span></td><td>127.0.0.53%lo</td><td>-</td></tr><tr><td><span class="mono">53/tcp</span></td><td>127.0.0.54</td><td>-</td></tr><tr><td><span class="mono">53/udp</span></td><td>127.0.0.54</td><td>-</td></tr><tr><td><span class="mono">53/udp</span></td><td>127.0.0.53%lo</td><td>-</td></tr><tr><td><span class="mono">323/udp</span></td><td>127.0.0.1</td><td>-</td></tr><tr><td><span class="mono">323/udp</span></td><td>127.0.0.1</td><td>-</td></tr><tr><td><span class="mono">323/udp</span></td><td>[::1]</td><td>-</td></tr><tr><td><span class="mono">323/udp</span></td><td>[::1]</td><td>-</td></tr><tr><td><span class="mono">8899/tcp</span></td><td>127.0.0.1</td><td>python3</td></tr><tr><td><span class="mono">18000/tcp</span></td><td>*</td><td>-</td></tr><tr><td><span class="mono">36109/tcp</span></td><td>127.0.0.1</td><td>MainThread</td></tr></tbody></table>
+    <h3>Disk Usage <span class="muted">(/var/log)</span></h3>
+    <table><tbody><tr><td>journal</td><td>231.67 MB</td></tr><tr><td>syslog</td><td>676.00 KB</td></tr><tr><td>dpkg.log.1</td><td>336.00 KB</td></tr><tr><td>syslog.1</td><td>328.00 KB</td></tr><tr><td>kern.log</td><td>216.00 KB</td></tr></tbody></table>
+    <h3>CPU Temperature</h3>
+    <p class="muted">no sensors available</p>
 </div>
 
 </body>

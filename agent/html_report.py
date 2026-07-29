@@ -1,5 +1,19 @@
 from datetime import datetime, timezone
+#imported by name: generate_html uses a local named 'html' for the document
+from html import escape
 import json
+
+
+def esc(value):
+    """
+    Escapes a value for inclusion in HTML.
+
+    Everything rendered here is untrusted: process names come from the kernel,
+    container and unit names from the host, and app-check fields from whatever
+    a remote endpoint returned. The report is meant to be served over HTTP, so
+    an unescaped '<' is both a rendering bug and an injection vector.
+    """
+    return escape(str(value), quote=True)
 
 
 def format_uptime(seconds):
@@ -49,6 +63,28 @@ def format_disk(disk):
     return disk
 
 
+def format_filesystems(filesystems):
+    formatted = []
+    for filesystem in filesystems or []:
+        filesystem = dict(filesystem)
+        if isinstance(filesystem.get("free"), (int, float)):
+            filesystem["free"] = format_bytes(filesystem["free"])
+        if isinstance(filesystem.get("used_percent"), (int, float)):
+            filesystem["used_percent"] = f"{filesystem['used_percent']}%"
+        formatted.append(filesystem)
+    return formatted
+
+
+def format_pressure(pressure):
+    pressure = dict(pressure or {})
+    for key in ("swap_in_bytes_per_sec", "swap_out_bytes_per_sec"):
+        if isinstance(pressure.get(key), (int, float)):
+            pressure[key] = f"{format_bytes(pressure[key])}/s"
+    if isinstance(pressure.get("iowait_percent"), (int, float)):
+        pressure["iowait_percent"] = f"{pressure['iowait_percent']}%"
+    return pressure
+
+
 def format_disk_details(features):
     features = dict(features)
     disk_details = dict(features.get("disk_details", {}))
@@ -64,40 +100,86 @@ def format_disk_details(features):
 def render_card(title, content):
     return f"""
 <div class="card">
-    <h2>{title}</h2>
-    <pre>{content}</pre>
+    <h2>{esc(title)}</h2>
+    <pre>{esc(content)}</pre>
 </div>
 """
 
 
 def render_services(services):
     if not services.get("success"):
-        return f'<p class="muted">{services.get("reason", "unavailable")}</p>'
+        return f'<p class="muted">{esc(services.get("reason", "unavailable"))}</p>'
     rows = "".join(
-        f'<li>{s["service"]}: <span class="mono">{s.get("status", "unknown")}</span></li>'
+        f'<li>{esc(s["service"])}: <span class="mono">{esc(s.get("status", "unknown"))}</span></li>'
         for s in services.get("data") or []
     )
     return f"<ul>{rows}</ul>" if rows else '<p class="muted">No services checked</p>'
 
 
-def render_docker(docker):
-    if not docker.get("success"):
-        return f'<p class="muted">{docker.get("reason", "unavailable")}</p>'
-    containers = docker.get("running_containers", [])
+def render_containers(containers_feature):
+    if not containers_feature.get("success"):
+        return f'<p class="muted">{esc(containers_feature.get("reason", "unavailable"))}</p>'
+    runtime = esc(containers_feature.get("runtime", "unknown"))
+    containers = containers_feature.get("running_containers", [])
     if not containers:
-        return '<p class="muted">No containers running</p>'
-    rows = "".join(f"<li>{c}</li>" for c in containers)
-    return f"<p>{len(containers)} running</p><ul>{rows}</ul>"
+        return f'<p class="muted">No containers running <span class="mono">({runtime})</span></p>'
+    rows = "".join(f"<li>{esc(c)}</li>" for c in containers)
+    return (
+        f'<p>{len(containers)} running <span class="muted mono">({runtime})</span></p>'
+        f"<ul>{rows}</ul>"
+    )
+
+
+def render_app_checks(app_checks):
+    """Renders the configured HTTP endpoint checks as a status table."""
+    if not app_checks.get("success"):
+        return f'<p class="muted">{esc(app_checks.get("reason", "unavailable"))}</p>'
+    checks = app_checks.get("data") or []
+    if not checks:
+        return '<p class="muted">No endpoints checked</p>'
+
+    rows = ""
+    for check in checks:
+        ok = check.get("success")
+        css_class = "good" if ok else "bad"
+        if ok:
+            state = str(check.get("http_status", "up"))
+        else:
+            state = check.get("error") or f'HTTP {check.get("http_status", "error")}'
+        latency = check.get("latency_ms")
+        latency_text = f"{latency} ms" if latency is not None else ""
+        detail = check.get("data") if isinstance(check.get("data"), dict) else None
+        summary = ""
+        if detail:
+            #surface the endpoint's own status field when it exposes one
+            for key in ("status", "state", "health"):
+                if key in detail:
+                    summary = str(detail[key])
+                    break
+        rows += (
+            f"<tr><td>{esc(check.get('name'))}</td>"
+            f'<td class="{css_class}">{esc(state)}</td>'
+            f"<td>{esc(summary)}</td>"
+            f"<td>{esc(latency_text)}</td></tr>"
+        )
+
+    header = (
+        f'<p>{app_checks.get("healthy", 0)}/{app_checks.get("count", 0)} healthy</p>'
+    )
+    return (
+        f"{header}<table><thead><tr><th>Endpoint</th><th>Status</th>"
+        f"<th>Reported</th><th>Latency</th></tr></thead><tbody>{rows}</tbody></table>"
+    )
 
 
 def render_disk_details(disk_details):
     if not disk_details.get("success"):
-        return f'<p class="muted">{disk_details.get("error", "unavailable")}</p>'
+        return f'<p class="muted">{esc(disk_details.get("error", "unavailable"))}</p>'
     data = disk_details.get("data") or []
     if not data:
         return '<p class="muted">No data</p>'
     rows = "".join(
-        f"<tr><td>{item['name']}</td><td>{item['size_bytes']}</td></tr>"
+        f"<tr><td>{esc(item['name'])}</td><td>{esc(item['size_bytes'])}</td></tr>"
         for item in data
     )
     return f'<table><tbody>{rows}</tbody></table>'
@@ -105,34 +187,177 @@ def render_disk_details(disk_details):
 
 def render_failed_services(failed):
     if not failed.get("success"):
-        return f'<p class="muted">{failed.get("reason", "unavailable")}</p>'
+        return f'<p class="muted">{esc(failed.get("reason", "unavailable"))}</p>'
     if failed["count"] == 0:
         return '<p class="muted">None</p>'
-    rows = "".join(f'<li class="bad">{s}</li>' for s in failed["services"])
+    rows = "".join(f'<li class="bad">{esc(s)}</li>' for s in failed["services"])
     return f"<ul>{rows}</ul>"
+
+
+def render_filesystems(filesystems, warn=80, crit=90):
+    """Renders every filesystem as a table, worst first, colour-coded."""
+    if not filesystems:
+        return '<p class="muted">No filesystems reported</p>'
+    rows = ""
+    for filesystem in filesystems:
+        used = filesystem.get("used_percent")
+        css_class = ""
+        if isinstance(used, (int, float)):
+            css_class = "bad" if used > crit else "warn" if used > warn else "good"
+        used_text = f"{used}%" if isinstance(used, (int, float)) else esc(used)
+        free = filesystem.get("free")
+        free_text = format_bytes(free) if isinstance(free, (int, float)) else esc(free)
+        rows += (
+            f"<tr><td><span class=\"mono\">{esc(filesystem.get('mount'))}</span></td>"
+            f'<td class="{css_class}">{esc(used_text)}</td>'
+            f"<td>{esc(free_text)} free</td>"
+            f"<td>{esc(filesystem.get('device') or '')}</td></tr>"
+        )
+    return (
+        "<table><thead><tr><th>Mount</th><th>Used</th><th>Free</th>"
+        f"<th>Device</th></tr></thead><tbody>{rows}</tbody></table>"
+    )
+
+
+def render_journal_errors(journal):
+    if not journal.get("success"):
+        return f'<p class="muted">{esc(journal.get("reason", "unavailable"))}</p>'
+    count = journal.get("count", 0)
+    window = esc(journal.get("window", ""))
+    if not count:
+        return f'<p class="good">No errors since {window}</p>'
+    capped = " (capped)" if journal.get("capped") else ""
+    units = "".join(
+        f'<li>{esc(entry.get("unit"))}: <span class="mono">{esc(entry.get("count"))}</span></li>'
+        for entry in journal.get("by_unit") or []
+    )
+    samples = "".join(
+        f'<li><span class="muted">{esc(sample.get("unit"))}</span> '
+        f'{esc(sample.get("message"))}</li>'
+        for sample in journal.get("data") or []
+    )
+    return (
+        f'<p class="bad">{esc(count)}{capped} error(s) since {window}</p>'
+        f"{f'<ul>{units}</ul>' if units else ''}"
+        f"{f'<ul>{samples}</ul>' if samples else ''}"
+    )
+
+
+def render_time_sync(time_sync):
+    if not time_sync.get("success"):
+        return f'<p class="muted">{esc(time_sync.get("reason", "unavailable"))}</p>'
+    synced = time_sync.get("synchronized")
+    css_class = "good" if synced else "bad"
+    label = "synchronized" if synced else "NOT synchronized"
+    service = time_sync.get("service") or "no active time daemon"
+    return (
+        f'<p class="{css_class}">{label}</p>'
+        f'<p class="muted">{esc(service)} &middot; {esc(time_sync.get("timezone") or "")}</p>'
+    )
+
+
+def render_security_module(module):
+    if not module.get("success"):
+        return f'<p class="muted">{esc(module.get("reason", "unavailable"))}</p>'
+    mode = module.get("mode")
+    css_class = "good" if mode == "enforcing" else "warn"
+    profiles = module.get("profiles_loaded")
+    detail = f' <span class="muted">({esc(profiles)} profiles)</span>' if profiles else ""
+    return (
+        f'<p><span class="mono">{esc(module.get("module"))}</span>: '
+        f'<span class="{css_class}">{esc(mode)}</span>{detail}</p>'
+    )
+
+
+def render_firewall(firewall):
+    if not firewall.get("success"):
+        return f'<p class="muted">{esc(firewall.get("reason", "unavailable"))}</p>'
+    active = firewall.get("active")
+    if not active:
+        #not an error, but worth seeing on a host that should have one
+        return '<p class="warn">No active firewall</p>'
+    detail = firewall.get("detail")
+    suffix = f' <span class="muted">({esc(detail)})</span>' if detail else ""
+    return f'<p class="good">{esc(active)} active</p>{suffix}'
+
+
+def render_reboot_required(reboot):
+    if not reboot.get("success"):
+        return f'<p class="muted">{esc(reboot.get("reason", "unavailable"))}</p>'
+    if not reboot.get("reboot_required"):
+        return '<p class="good">No</p>'
+    packages = reboot.get("data") or []
+    listed = "".join(f"<li>{esc(name)}</li>" for name in packages[:10])
+    return f'<p class="warn">Yes</p>{f"<ul>{listed}</ul>" if listed else ""}'
+
+
+def render_listening_ports(ports_feature):
+    if not ports_feature.get("success"):
+        return f'<p class="muted">{esc(ports_feature.get("reason", "unavailable"))}</p>'
+    ports = ports_feature.get("data") or []
+    if not ports:
+        return '<p class="muted">Nothing listening</p>'
+    rows = "".join(
+        f"<tr><td><span class=\"mono\">{esc(p['port'])}/{esc(p['protocol'])}</span></td>"
+        f"<td>{esc(p.get('address') or '')}</td>"
+        f"<td>{esc(p.get('process') or '-')}</td></tr>"
+        for p in ports
+    )
+    return (
+        f'<table><thead><tr><th>Port</th><th>Address</th><th>Process</th></tr>'
+        f"</thead><tbody>{rows}</tbody></table>"
+    )
 
 
 def render_cpu_temp(temp):
     if not temp.get("success"):
-        return f'<p class="muted">{temp.get("reason", "unavailable")}</p>'
-    return f'<p>{temp["celsius"]}°C <span class="muted">({temp["source"]})</span></p>'
+        return f'<p class="muted">{esc(temp.get("reason", "unavailable"))}</p>'
+    return f'<p>{esc(temp["celsius"])}°C <span class="muted">({esc(temp["source"])})</span></p>'
 
 
 def render_features_card(features):
     services_html = render_services(features.get("services") or {})
     failed_html = render_failed_services(features.get("failed_services") or {})
-    docker_html = render_docker(features.get("docker") or {})
+    containers_html = render_containers(features.get("containers") or {})
     disk_html = render_disk_details((features.get("disk_details") or {}).copy())
     temp_html = render_cpu_temp(features.get("cpu_temperature") or {})
+    app_html = render_app_checks(features.get("app_checks") or {})
+    ports_html = render_listening_ports(features.get("listening_ports") or {})
+    journal_html = render_journal_errors(features.get("journal_errors") or {})
+    time_html = render_time_sync(features.get("time_sync") or {})
+    lsm_html = render_security_module(features.get("security_module") or {})
+    firewall_html = render_firewall(features.get("firewall") or {})
+    reboot_html = render_reboot_required(features.get("reboot_required") or {})
     return f"""
+<div class="card">
+    <h2>Application Endpoints</h2>
+    {app_html}
+</div>
+<div class="card">
+    <h2>Journal Errors</h2>
+    {journal_html}
+</div>
+<div class="card">
+    <h2>Host Posture</h2>
+    <h3>Time Synchronization</h3>
+    {time_html}
+    <h3>Access Control</h3>
+    {lsm_html}
+    <h3>Firewall</h3>
+    {firewall_html}
+    <h3>Reboot Required</h3>
+    {reboot_html}
+</div>
 <div class="card">
     <h2>Features</h2>
     <h3>Services</h3>
     {services_html}
     <h3>Failed Services</h3>
     {failed_html}
-    <h3>Docker</h3>
-    {docker_html}
+    <h3>Containers</h3>
+    {containers_html}
+    <h3>Listening Ports</h3>
+    {ports_html}
     <h3>Disk Usage <span class="muted">(/var/log)</span></h3>
     {disk_html}
     <h3>CPU Temperature</h3>
@@ -197,6 +422,10 @@ def humanize_view(view):
                 if isinstance(dio.get(key), (int, float)):
                     dio[key] = f"{format_bytes(dio[key])}/s"
             core["disk_io"] = dio
+        if core.get("filesystems"):
+            core["filesystems"] = format_filesystems(core["filesystems"])
+        if core.get("pressure"):
+            core["pressure"] = format_pressure(core["pressure"])
         view["core_metrics"] = core
     if "uptime_seconds" in view:
         view["uptime"] = format_uptime(view.pop("uptime_seconds"))
@@ -210,6 +439,11 @@ def humanize_view(view):
 def generate_html(data):
     system = data.get("system", {})
     core = format_percents(format_core(data.get("core_metrics", {})))
+    #filesystems read far better as a table than inside a JSON dump
+    filesystems = data.get("core_metrics", {}).get("filesystems")
+    core.pop("filesystems", None)
+    if core.get("pressure"):
+        core["pressure"] = format_pressure(core["pressure"])
     uptime = data.get("uptime_seconds")
     if uptime is not None:
         uptime = format_uptime(uptime)
@@ -218,6 +452,13 @@ def generate_html(data):
     features = format_disk_details(data.get("features", {}))
     status = data.get("health", {}).get("status")
     diagnosis = data.get("health", {}).get("diagnosis", [])
+    actions = data.get("health", {}).get("actions", [])
+
+    #the hostname matters once reports from several nodes are served together
+    hostname = system.get("hostname")
+    host_label = f" &middot; <strong>{esc(hostname)}</strong>" if hostname else ""
+    agent_version = data.get("agent_version")
+    version_label = f" &middot; agent v{esc(agent_version)}" if agent_version else ""
 
     html = f"""
 <!DOCTYPE html>
@@ -260,17 +501,37 @@ def generate_html(data):
         table {{ border-collapse: collapse; width: 100%; margin-top: 4px; }}
         td {{ padding: 4px 12px 4px 0; font-size: 0.95em; }}
         td:last-child {{ color: #aaa; text-align: right; }}
+        th {{
+            padding: 4px 12px 4px 0;
+            font-size: 0.8em;
+            color: #888;
+            text-align: left;
+            font-weight: normal;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid #2a2e37;
+        }}
+        th:last-child {{ text-align: right; }}
     </style>
 </head>
 
 <body>
 
 <h1>Linux Health Monitor</h1>
-<p>Generated: {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")}</p>
+<p>Generated: {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")}
+{host_label}<span class="muted">{version_label}</span></p>
 """
 
     html += render_card("System", json.dumps(system, indent=2))
     html += render_card("Core Metrics", json.dumps(core, indent=2))
+
+    if filesystems:
+        html += f"""
+<div class="card">
+    <h2>Filesystems</h2>
+    {render_filesystems(filesystems)}
+</div>
+"""
 
     if uptime is not None:
         html += f"""
@@ -286,13 +547,18 @@ def generate_html(data):
             "WARNING": "warn",
             "CRITICAL": "bad"
         }.get(status, "warn")
-        diag_items = "".join(f"<li>{d}</li>" for d in diagnosis)
+        diag_items = "".join(f"<li>{esc(d)}</li>" for d in diagnosis)
+        #suggested commands, never executed: a person decides whether to run them
+        action_items = "".join(f'<li class="mono">{esc(a)}</li>' for a in actions)
+        action_block = f"""
+    <h3>Suggested Commands <span class="muted">(not run automatically)</span></h3>
+    <ul>{action_items}</ul>""" if action_items else ""
 
         html += f"""
 <div class="card">
     <h2>Health</h2>
-    <p class="{css_class}" style="font-size:1.2em; font-weight:bold; margin:0 0 8px">{status}</p>
-    <ul>{diag_items}</ul>
+    <p class="{css_class}" style="font-size:1.2em; font-weight:bold; margin:0 0 8px">{esc(status)}</p>
+    <ul>{diag_items}</ul>{action_block}
 </div>
 """
 

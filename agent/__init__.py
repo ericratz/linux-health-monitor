@@ -1,2 +1,3 @@
 #__init__.py
-#intentionally left blank to avoid circular imports
+#kept import-free to avoid circular imports; only the version lives here
+__version__ = "3.0.0"
