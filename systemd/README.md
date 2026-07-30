@@ -148,6 +148,14 @@ distro — `ssh` on a RHEL host, for instance. If a service genuinely runs as a
 container rather than a unit, take it out of the list and let the container
 check and `HEALTH_APP_ENDPOINTS` cover it.
 
+The lists above are the **fully-deployed** state. On a host still being built,
+carry only what is installed and add each name in the step that deploys it. The
+alternative — listing the end state up front and waiting for reality to catch
+up — parks the unit in `failed` for the whole deployment, which costs you
+`systemctl is-failed health-monitor.service` as a per-step check: it reads the
+same before and after a step that worked, so it can no longer tell a step that
+succeeded from one that did not.
+
 ### Fleet dashboard
 
 Point each node's `HEALTH_APP_ENDPOINTS` at **both** nodes so either node's

@@ -114,6 +114,8 @@ Flags can be combined: `python3 -m agent.monitor -a -H --no-exit-code`
 
 A configured service that is stopped or absent, and a configured endpoint that does not answer, are each a WARNING — see [systemd/README.md](systemd/README.md#exit-codes-and-alerting).
 
+So `HEALTH_SERVICES` should name what the host runs *now*, not what it will run when the build is finished: a unit added ahead of the step that installs it reports `not-installed` and holds the exit code at 1 until it arrives.
+
 ---
 
 ## Configuration

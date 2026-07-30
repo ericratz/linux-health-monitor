@@ -37,6 +37,19 @@ sensitive document it always was.
 
 ### Fixed
 
+- **The shipped unit still carried the promise this release retired.** The
+  comment above `HEALTH_SERVICES` in `systemd/health-monitor.service` said that
+  naming a not-yet-deployed unit was harmless and self-explanatory — the
+  pre-v3.2 rule, contradicting both the breaking note above and
+  `systemd/README.md`, and pointing at `prometheus` as the example while this
+  platform runs it as `prometheus.service`. It now states the rule that
+  replaced it: the shipped list is the fully-deployed state, and a host still
+  being built names each unit from the step that installs it onwards, carrying
+  a shorter list in its drop-in until then. Listing the end state up front
+  parks the unit in `failed` for the whole deployment, which costs
+  `systemctl is-failed health-monitor.service` as a per-step check — it reads
+  the same before and after a step that worked.
+
 - **CI's exit-code assertion was flaky and imprecise.** It drove CRITICAL with
   `HEALTH_CPU_CRIT=0`, but an idle runner can measure exactly 0.0% CPU over the
   0.3s sampling window, and `0.0 > 0` is false — so the run came back HEALTHY

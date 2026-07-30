@@ -45,9 +45,14 @@ Environment=PYTHONUNBUFFERED=1
 
 # Units worth watching. Genuinely differs per host: node1 runs Docker, node2
 # runs rootless Podman; the SSH unit is `ssh` on Debian and `sshd` on RHEL.
-# A unit that is not installed reports `not-installed` rather than `inactive`,
-# so naming one that has not been deployed yet is harmless and self-explanatory
-# (prometheus reads that way wherever it runs as a container rather than a unit).
+#
+# This is the fully-deployed list. Name a unit only from the step that installs
+# it onwards, never ahead of it: a unit that is not installed reports
+# `not-installed`, which is a WARNING, which exits 1 and leaves this unit
+# `failed` until the deployment catches up. A host mid-deploy therefore carries
+# a shorter list in its drop-in and grows it step by step - which also keeps
+# `systemctl is-failed health-monitor.service` meaningful between steps, rather
+# than reporting the same failure before and after each one.
 Environment=HEALTH_SERVICES=nginx,docker,keepalived,prometheus,ssh
 
 # Rootless Podman: containers belong to the user that started them, so root's
