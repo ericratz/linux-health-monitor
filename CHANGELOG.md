@@ -82,8 +82,11 @@ interface that tool reads instead — `getenforce` reads `/sys/fs/selinux`,
 - `systemd/` — a oneshot `.service` and a 2-minute `.timer`, the production
   deployment path, with per-host configuration as `Environment=` lines.
   `NoNewPrivileges` is deliberately unset: on SELinux hosts it denies `podman`'s
-  transition into `container_runtime_t`, breaking container inspection and
-  logging an `nnp_transition` AVC denial on every run. Verified on Rocky 10.
+  transition into `container_runtime_t`, so podman runs in the service's
+  unconfined domain and every run logs an `nnp_transition` AVC denial. The
+  container check still returned data, so the cost is a flooded audit log and a
+  less-confined podman rather than a broken feature. Measured on Rocky 10, and
+  confirmed clear once the flag was removed.
 - HTML report gains **Filesystems**, **Application Endpoints**, **Journal
   Errors** and **Host Posture** cards, and renders the suggested commands,
   which previously existed only in the JSON.

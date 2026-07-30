@@ -81,19 +81,33 @@ deliberately out of scope.
 ## Two gotchas
 
 **SELinux and `NoNewPrivileges`.** The unit deliberately does *not* set
-`NoNewPrivileges=yes`. On a RHEL host it breaks container inspection: `podman`
-has to transition into the `container_runtime_t` SELinux domain, and
-`NoNewPrivileges` forbids that transition, producing an audit denial on every
-run:
+`NoNewPrivileges=yes`. On a RHEL host, `podman` transitions into the
+`container_runtime_t` SELinux domain, and `NoNewPrivileges` forbids that class
+of transition — so podman runs in the service's own unconfined domain instead,
+and every run logs a denial:
 
 ```
 avc: denied { nnp_transition } scontext=...:unconfined_service_t
      tcontext=...:container_runtime_t tclass=process2 permissive=0
 ```
 
-Verify with `sudo ausearch -m avc -ts today` after the first run; `<no matches>`
-is what you want. This is a good example of why the `security_module` check
-exists — the same unit is silently fine on AppArmor and denied on SELinux.
+Measured on Rocky 10, this fired on every 2-minute run. `podman ps` still
+executed, so the container check kept returning data — the cost is an audit log
+full of denials that would hide a real one, plus podman running less confined
+than its own policy intends.
+
+Verify after a run — note that `-ts recent` spans ten minutes and will show
+pre-fix history, so timestamp the window yourself:
+
+```bash
+STAMP=$(date '+%H:%M:%S'); sudo systemctl start health-monitor.service; sleep 3; sudo ausearch -m avc -ts today "$STAMP"
+```
+
+`<no matches>` is what you want, and `systemctl show health-monitor.service
+--property=NoNewPrivileges` should report `no`.
+
+The same unit is silently fine on AppArmor and denied on SELinux — which is
+exactly why the `security_module` check reports which module is enforcing.
 
 **Rootless Podman (node2).** Containers belong to the user that started them,
 so root's `podman ps` queries root's own empty store and reports nothing. Set
