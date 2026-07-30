@@ -112,7 +112,7 @@ compiled in, so the same build serves any host.
 | `HEALTH_CONTAINER_USER` | Owner of a **rootless** container runtime (node2). |
 | `HEALTH_APP_ENDPOINTS` | `name=url` pairs for HTTP checks. Unset = feature omitted. |
 | `HEALTH_APP_TIMEOUT` | Per-endpoint timeout in seconds (default 2). |
-| `HEALTH_APP_CRITICAL` | Endpoint names that count toward the health status. Unset = all of them. |
+| `HEALTH_APP_CRITICAL` | Endpoint names that count toward the health status. Unset = this host's own endpoints plus the VIP. |
 | `HEALTH_VIP` | Virtual IP(s) to check against this host's own interfaces. Unset = feature omitted. |
 | `HEALTH_JOURNAL_WINDOW` | How far back to count journal errors (code default `-1h`; the unit ships `-15min`). |
 | `HEALTH_SELF_UNIT` | This monitor's own unit, excluded from the failed count (default `health-monitor.service`). |
@@ -161,6 +161,37 @@ Environment=HEALTH_APP_ENDPOINTS=node1-health=http://192.168.71.251:8000/health,
 OS metrics remain node-local — each report describes the host it ran on.
 Aggregating OS metrics across both nodes would need a collector; that is
 deliberately out of scope.
+
+**A peer's outage is not this node's WARNING.** Every configured endpoint is
+*reported*, but only the ones describing this host are *scored*: loopback, one
+of its own addresses, or the VIP. The exit code is per-node and drives systemd
+unit state, so if a peer's failure failed this node's unit too, a failover
+would leave both units `failed` and the cheapest signal in the fleet could no
+longer say which node to look at.
+
+The VIP is scored on every node deliberately, whoever holds it: "the VIP does
+not answer" is worth all of them reporting. `HEALTH_APP_CRITICAL` overrides the
+whole computation with an explicit list when you want something else — a
+hostname the monitor cannot resolve to a local address is treated as a peer, so
+name it there if it is really yours.
+
+### Serving the report
+
+Give `--html` an absolute path inside a web root and the report is written
+straight there, no copy step:
+
+```
+ExecStart=/usr/bin/python3 -m agent.monitor --all --html /var/www/health/report.html
+```
+
+The parent directory is created if missing. On an SELinux host it also needs an
+httpd content label or nginx returns 403 — check with `ls -Zd /var/www/health`.
+
+⚠️ **The report is an internal document.** It enumerates listening ports with
+process names, running containers, internal addressing, MAC addresses and disk
+contents. That is a reconnaissance summary of the host, so whatever serves it
+should restrict access — bind it to the management network, or put auth or an
+IP allow-list in front of it. Do not publish it on a public VIP unguarded.
 
 ### Who holds the VIP
 
@@ -247,8 +278,8 @@ alerting signal on its own:
 - a unit in `HEALTH_SERVICES` that is stopped, failed, masked or **not
   installed** — `systemctl --failed` cannot see any of these, because it lists
   only units that started and then broke
-- an endpoint in `HEALTH_APP_ENDPOINTS` that does not answer, narrowable with
-  `HEALTH_APP_CRITICAL`
+- an endpoint in `HEALTH_APP_ENDPOINTS` that does not answer **and describes
+  this host** — loopback, one of its own addresses, or the VIP
 
 A unit caught mid-restart (`activating`, `deactivating`) does not alarm, and
 neither does a check that could not read a state at all — an unavailable

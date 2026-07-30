@@ -25,6 +25,12 @@ WorkingDirectory=/opt/linux-health-monitor
 #   - systemd logs each failed run at err priority, so the journal error count
 #     picks it up. Harmless (journal volume never affects the exit code) and
 #     honest: those entries say the monitor is warning.
+# A bare filename lands in WorkingDirectory/reports. To have a web server
+# publish the report instead, give --html an absolute path inside that server's
+# root and the parent directory is created for you:
+#   --html /var/www/health/report.html
+# On an SELinux host the directory must carry an httpd content label, or nginx
+# gets a 403 it will blame on permissions: `ls -Zd /var/www/health`.
 ExecStart=/usr/bin/python3 -m agent.monitor --all --html report.html
 
 Environment=PYTHONPATH=/opt/linux-health-monitor

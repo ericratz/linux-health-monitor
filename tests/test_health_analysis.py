@@ -162,6 +162,69 @@ def test_endpoint_that_answered_badly_reports_its_status_code():
     assert any("http://192.168.71.250/health" in action for action in actions)
 
 
+def test_peer_endpoint_does_not_alarm_this_node(monkeypatch):
+    #the exit code is per-node and drives unit state: if a peer's outage fails
+    #this node's unit too, a failover leaves both failed and the signal can no
+    #longer say which node to look at
+    monkeypatch.delenv("HEALTH_APP_CRITICAL", raising=False)
+    ctx = {**HEALTHY, "self_hosts": {"192.168.71.251", "192.168.71.250"},
+           "app_checks": [
+               {"name": "node2-health", "success": False, "error": "No route",
+                "url": "http://192.168.71.252:8000/health"},
+           ]}
+    assert generate_health_status(ctx) == "HEALTHY"
+    assert generate_alerts(ctx) == []
+
+
+def test_own_and_vip_endpoints_do_alarm(monkeypatch):
+    monkeypatch.delenv("HEALTH_APP_CRITICAL", raising=False)
+    self_hosts = {"192.168.71.251", "192.168.71.250"}
+    for url in ("http://192.168.71.251:8000/health",   # its own address
+                "http://127.0.0.1:8000/slo",           # loopback
+                "http://192.168.71.250/health"):       # the VIP, held or not
+        ctx = {**HEALTHY, "self_hosts": self_hosts, "app_checks": [
+            {"name": "x", "success": False, "error": "refused", "url": url},
+        ]}
+        assert generate_health_status(ctx) == "WARNING", url
+
+
+def test_unplaceable_host_is_left_to_its_own_node(monkeypatch):
+    #a DNS name we cannot resolve to a local address is treated as a peer:
+    #reported, but scored by whichever node it actually describes
+    monkeypatch.delenv("HEALTH_APP_CRITICAL", raising=False)
+    ctx = {**HEALTHY, "self_hosts": {"192.168.71.251"}, "app_checks": [
+        {"name": "far", "success": False, "error": "refused",
+         "url": "http://someplace.example/health"},
+    ]}
+    assert generate_health_status(ctx) == "HEALTHY"
+
+
+def test_unknown_local_addresses_fall_back_to_scoring_everything(monkeypatch):
+    #if the address list is unreadable we cannot tell own from peer; alarming
+    #on all of them beats silently scoring none
+    monkeypatch.delenv("HEALTH_APP_CRITICAL", raising=False)
+    ctx = {**HEALTHY, "self_hosts": set(), "app_checks": [
+        {"name": "peer", "success": False, "error": "refused",
+         "url": "http://192.168.71.252:8000/health"},
+    ]}
+    assert generate_health_status(ctx) == "WARNING"
+
+
+def test_critical_subset_overrides_the_computed_default(monkeypatch):
+    #an explicit list wins, including naming a peer you do want to alarm on
+    monkeypatch.setenv("HEALTH_APP_CRITICAL", "node2-health")
+    ctx = {**HEALTHY, "self_hosts": {"192.168.71.251"}, "app_checks": [
+        {"name": "node2-health", "success": False, "error": "No route",
+         "url": "http://192.168.71.252:8000/health"},
+        {"name": "own", "success": False, "error": "refused",
+         "url": "http://192.168.71.251:8000/health"},
+    ]}
+    assert generate_health_status(ctx) == "WARNING"
+    #only the named one is scored, so exactly one endpoint is reported
+    assert sum("node2-health" in a for a in generate_alerts(ctx)) == 1
+    assert not any("own" in a for a in generate_alerts(ctx))
+
+
 def test_critical_endpoint_subset_limits_what_alarms(monkeypatch):
     #each node points at both nodes, so without this a peer's outage - or a
     #planned failover - alarms the healthy node too

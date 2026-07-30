@@ -35,6 +35,7 @@ from agent.host_checks import (
     get_firewall,
     get_vip_status,
     get_reboot_required,
+    local_addresses,
 )
 from agent.html_report import generate_html, humanize_view
 from agent import __version__
@@ -101,6 +102,18 @@ class HealthMonitor:
         failed = features.get("failed_services") or {}
         services = features.get("services") or {}
         app_checks = features.get("app_checks") or {}
+        vip = features.get("vip") or {}
+        #which endpoints describe THIS node: its own addresses plus the VIP,
+        #whoever currently holds that. Empty when the address list is
+        #unreadable, which falls back to scoring every endpoint rather than
+        #silently scoring none.
+        self_hosts = set()
+        if app_checks.get("success"):
+            self_hosts = local_addresses()
+            if self_hosts:
+                self_hosts |= {
+                    entry["address"] for entry in (vip.get("data") or [])
+                }
         ctx = {
             "cpu": metrics["cpu"],
             "mem_used": mem,
@@ -116,6 +129,7 @@ class HealthMonitor:
             #invisible to it. Both are scored from the configured list instead.
             "services": services.get("data") if services.get("success") else None,
             "app_checks": app_checks.get("data") if app_checks.get("success") else None,
+            "self_hosts": self_hosts,
             #only a positive answer is actionable; an unavailable check is not
             "time_desynchronized": (
                 time_sync.get("success") and not time_sync.get("synchronized")
@@ -198,12 +212,22 @@ def parse_args():
 def write_output(view, html_file=None):
     """
     Outputs as JSON or HTML file.
+
+    A bare filename lands in ./reports, which is what the unit uses. An
+    absolute path is written where it says, so the report can be dropped
+    straight into a web root a separate server owns rather than symlinked or
+    copied there by a second moving part.
     """
     try:
         if html_file:
             html = generate_html(view)
-            os.makedirs("reports", exist_ok=True)
-            output_path = os.path.join("reports", html_file)
+            if os.path.isabs(html_file):
+                output_path = html_file
+                directory = os.path.dirname(output_path)
+            else:
+                directory = "reports"
+                output_path = os.path.join(directory, html_file)
+            os.makedirs(directory, exist_ok=True)
             with open(output_path, "w") as f:
                 f.write(html)
         else:

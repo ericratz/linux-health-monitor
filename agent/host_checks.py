@@ -315,6 +315,19 @@ def _neighbour_mac(address):
     return None
 
 
+def local_addresses():
+    """
+    Returns the set of IP addresses configured on this host.
+
+    Exposed so the analysis can tell a node's own endpoints from its peers'.
+    The exit code is per-node and drives systemd unit state, so a node that
+    goes WARNING because its peer is down leaves both units failed during a
+    failover - and the cheapest signal in the fleet can no longer say which
+    node to look at.
+    """
+    return set(_host_addresses() or {})
+
+
 def get_vip_status():
     """
     Reports whether this host currently holds each configured virtual IP.

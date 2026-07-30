@@ -8,6 +8,7 @@ process: the monitor's job is to say what it sees and name the command that
 would investigate or fix it.
 """
 import os
+from urllib.parse import urlparse
 
 #Above this, iowait is high enough that the CPU number alone is misleading.
 IOWAIT_WARN = 10.0
@@ -26,8 +27,11 @@ TRANSIENT_SERVICE_STATES = ("activating", "deactivating", "unknown")
 MISCONFIGURED_SERVICE_STATES = ("not-installed", "masked")
 
 #Optional subset of endpoint names that count toward the health status. Unset
-#means every configured endpoint counts.
+#means the computed default: this host's own endpoints, plus the VIP.
 APP_CRITICAL_ENV = "HEALTH_APP_CRITICAL"
+
+#Always this host, whatever its addresses are.
+LOOPBACK_HOSTS = ("localhost", "127.0.0.1", "::1", "ip6-localhost")
 
 
 def _env_float(name, default):
@@ -126,12 +130,35 @@ def _endpoint_failures(ctx):
     command can name the URL it would actually retry.
     """
     critical = _critical_endpoints()
-    return [
-        check
-        for check in (ctx.get("app_checks") or [])
-        if not check.get("success")
-        and not (critical and check.get("name") not in critical)
-    ]
+    self_hosts = ctx.get("self_hosts") or set()
+    failures = []
+    for check in ctx.get("app_checks") or []:
+        if critical:
+            if check.get("name") not in critical:
+                continue
+        elif self_hosts and not _is_own_endpoint(check, self_hosts):
+            continue
+        if not check.get("success"):
+            failures.append(check)
+    return failures
+
+
+def _is_own_endpoint(check, self_hosts):
+    """
+    True if an endpoint describes this host rather than a peer.
+
+    Loopback and this host's own addresses are obviously its own. The VIP is
+    deliberately included even when another node holds it: "the VIP does not
+    answer" is a fault worth every node reporting, and which node happens to
+    own the address at the time is what the VIP check is for.
+
+    A host we cannot place - a DNS name, or a peer - is left unscored, so it
+    still appears in the report while belonging to its own node's exit code.
+    """
+    host = urlparse(check.get("url") or "").hostname
+    if not host:
+        return False
+    return host in LOOPBACK_HOSTS or host in self_hosts
 
 
 def _endpoint_label(check):

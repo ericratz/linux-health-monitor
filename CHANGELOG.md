@@ -36,10 +36,17 @@
 
 ### Added
 
-- **`HEALTH_APP_CRITICAL`** — endpoint names that count toward the status.
-  Unset scores every configured endpoint. Needed because a fleet dashboard
-  points each node at both nodes, so by default one node's outage alarms its
-  healthy peer, and a planned failover lights up the whole pair.
+- **Endpoint scoring is per-node by default.** Every configured endpoint is
+  reported, but only those describing this host are scored: loopback, one of
+  its own addresses, or the VIP. The exit code is per-node and drives systemd
+  unit state, so scoring a peer's outage would leave both units `failed` during
+  a failover, exactly when the signal needs to say which node to look at. The
+  VIP is scored everywhere on purpose — "the VIP does not answer" is worth
+  every node reporting. `HEALTH_APP_CRITICAL` overrides the computation with an
+  explicit list; an unresolvable hostname is treated as a peer.
+- **`--html` accepts an absolute path**, creating the parent directory, so the
+  report can be written straight into a web root instead of being copied there
+  by a second moving part.
 - **The VIP check names whoever is answering when this node is not.** Read
   passively from the neighbour cache, so `not held` becomes
   `not held (answered by d8:44:89:a0:66:60)`. A peer's MAC means failover; an
