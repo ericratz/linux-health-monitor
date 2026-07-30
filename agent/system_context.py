@@ -12,6 +12,14 @@ CONTAINER_RUNTIMES = ("docker", "podman")
 #Overridden per host with HEALTH_SERVICES.
 DEFAULT_SERVICES = ["nginx", "docker"]
 
+#The monitor's own unit, which is excluded from the failed-unit count. A
+#WARNING makes the oneshot exit 1, which leaves the unit in `failed`, which the
+#next run would count as a failed unit - a WARNING sustained by nothing but the
+#previous WARNING, long after whatever caused it is gone. Overridable for an
+#install that renamed the unit.
+SELF_UNIT_ENV = "HEALTH_SELF_UNIT"
+DEFAULT_SELF_UNIT = "health-monitor.service"
+
 #os-release ID / ID_LIKE tokens mapped to the family whose tooling applies.
 #Only families whose commands actually differ need an entry.
 OS_FAMILIES = {
@@ -242,14 +250,43 @@ def get_containers():
         "data": None
     }
 
+def _self_unit():
+    """
+    Returns the monitor's own unit name, fully qualified.
+
+    `systemctl --failed` prints qualified names, so a configured value without
+    a suffix would never match what we are comparing it against.
+    """
+    name = os.getenv(SELF_UNIT_ENV, DEFAULT_SELF_UNIT).strip()
+    if not name:
+        return None
+    return name if "." in name else f"{name}.service"
+
+
 def get_failed_services(env):
+    """
+    Returns the units systemd currently reports as failed.
+
+    The monitor's own unit is excluded from the count, because counting it
+    would let one WARNING sustain itself indefinitely: exit 1 leaves the
+    oneshot `failed`, a failed unit is a WARNING, and the next run exits 1
+    again. It is still reported separately under `excluded`, so a genuinely
+    broken monitor stays visible instead of quietly erasing itself.
+    """
     if env in ["Docker", "CI", "WSL2", "GitHub Actions"]:
         return {"success": False, "reason": f"systemctl not available in {env}"}
     result = run_command(["systemctl", "--failed", "--no-legend", "--plain"])
     if not result["success"]:
         return {"success": False, "reason": result["stderr"] or "systemctl unavailable"}
-    failed = [line.split()[0] for line in result["stdout"].splitlines() if line.strip()]
-    return {"success": True, "count": len(failed), "services": failed}
+    units = [line.split()[0] for line in result["stdout"].splitlines() if line.strip()]
+    self_unit = _self_unit()
+    failed = [unit for unit in units if unit != self_unit]
+    return {
+        "success": True,
+        "count": len(failed),
+        "services": failed,
+        "excluded": [unit for unit in units if unit == self_unit],
+    }
 
 
 def get_listening_ports():

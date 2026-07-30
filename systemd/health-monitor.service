@@ -16,31 +16,62 @@ Type=oneshot
 User=root
 
 WorkingDirectory=/opt/linux-health-monitor
-ExecStart=/usr/bin/python3 -m agent.monitor --all --html report.html --no-exit-code
+# No --no-exit-code here, deliberately: the run exits 0 HEALTHY, 1 WARNING,
+# 2 CRITICAL, so `systemctl is-failed health-monitor.service` is an alerting
+# signal on its own. Two consequences worth knowing before you "fix" either:
+#   - a WARNING leaves this unit in `failed` until the next healthy run. That
+#     is the signal working, not a bug. get_failed_services() excludes this
+#     unit from its own count, so one WARNING cannot sustain the next.
+#   - systemd logs each failed run at err priority, so the journal error count
+#     picks it up. Harmless (journal volume never affects the exit code) and
+#     honest: those entries say the monitor is warning.
+ExecStart=/usr/bin/python3 -m agent.monitor --all --html report.html
 
 Environment=PYTHONPATH=/opt/linux-health-monitor
 Environment=PYTHONUNBUFFERED=1
 
 # --- Per-host configuration -------------------------------------------------
-# Units worth watching. Differs per host: a Docker host watches docker.service,
-# a rootless-Podman host watches its Quadlet unit.
-#   node1: Environment=HEALTH_SERVICES=nginx,docker,keepalived
-#   node2: Environment=HEALTH_SERVICES=nginx,keepalived
-Environment=HEALTH_SERVICES=nginx,keepalived
+# Shipped with node1's values live. Deploying to node2 means changing exactly
+# three lines, each marked "node2:" below.
+
+# Units worth watching. Genuinely differs per host: node1 runs Docker, node2
+# runs rootless Podman; the SSH unit is `ssh` on Debian and `sshd` on RHEL.
+# A unit that is not installed reports `not-installed` rather than `inactive`,
+# so naming one that has not been deployed yet is harmless and self-explanatory
+# (prometheus reads that way wherever it runs as a container rather than a unit).
+Environment=HEALTH_SERVICES=nginx,docker,keepalived,prometheus,ssh
+# node2: Environment=HEALTH_SERVICES=nginx,keepalived,prometheus,sshd,firewalld
+#
+# Do NOT add the rootless application unit to this list on node2. The Quadlet
+# runs under `systemctl --user`; this monitor runs as root and queries the
+# system manager, which has never heard of it, so it would report
+# `not-installed` forever - worse than absent, because it reads as "the app is
+# not deployed". Application liveness on node2 comes from the container check
+# (HEALTH_CONTAINER_USER, below) and from HEALTH_APP_ENDPOINTS.
 
 # Rootless Podman: containers belong to the user that started them, so root's
 # `podman ps` sees an empty store. Naming the owner lets the monitor look in
-# the right place (node2 only; leave unset on a Docker host).
-#Environment=HEALTH_CONTAINER_USER=brp
+# the right place. Leave unset on a Docker host.
+# node2: Environment=HEALTH_CONTAINER_USER=ericratz
 
 # Application endpoints, as name=url pairs. Pointing each node at BOTH nodes
-# makes either node's report a fleet-wide dashboard. Unset = feature omitted.
-#Environment=HEALTH_APP_ENDPOINTS=node1-health=http://192.168.71.251:8000/health,node2-health=http://192.168.71.252:8000/health,fleet-slo=http://192.168.71.251:8000/slo
+# makes either node's report a fleet-wide dashboard. Identical on both nodes:
+# fleet-slo is 127.0.0.1 so each node reports its own SLO view, and the vip
+# entry shows who is answering on the floating address - its `node` field names
+# the responder. Which node actually *holds* the VIP is HEALTH_VIP, below.
+Environment=HEALTH_APP_ENDPOINTS=node1-health=http://192.168.71.251:8000/health,node2-health=http://192.168.71.252:8000/health,fleet-slo=http://127.0.0.1:8000/slo,vip=http://192.168.71.250/health
 Environment=HEALTH_APP_TIMEOUT=2
 
-# How far back to count journal errors. Keep this at or below the timer
-# interval's order of magnitude, or successive reports re-count the same errors.
-Environment=HEALTH_JOURNAL_WINDOW=-1h
+# The floating address, checked against this host's own interfaces. Same value
+# on both nodes: each reports true or false for itself, and split-brain is two
+# reports that both say held. Never affects the health status - holding nothing
+# is the correct state for the backup node.
+Environment=HEALTH_VIP=192.168.71.250
+
+# How far back to count journal errors. Kept near the timer interval (2min) so
+# successive reports do not re-count the same errors: at -1h a single burst
+# stays in the alerts for a full hour after it is over.
+Environment=HEALTH_JOURNAL_WINDOW=-15min
 
 # Alert thresholds (percentages).
 #Environment=HEALTH_CPU_WARN=70
@@ -77,9 +108,9 @@ PrivateTmp=yes
 # buys little here.
 
 # ProtectHome hides /home. Safe for a root Docker or root Podman runtime, whose
-# state lives under /var/lib/containers. Comment it out if you set
-# HEALTH_CONTAINER_USER, since `su -` needs the target user's home to build
-# their login session.
+# state lives under /var/lib/containers.
+# node2: comment the next line out. HEALTH_CONTAINER_USER runs `su -`, which
+# needs the target user's home to build their login session.
 ProtectHome=yes
 
 [Install]

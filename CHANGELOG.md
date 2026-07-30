@@ -1,5 +1,40 @@
 # Changelog
 
+## v3.1
+
+Makes the timer's exit status mean what the deployment docs always claimed, and
+adds the one HA fact no HTTP check can establish: which node holds the VIP.
+
+No breaking changes. `features.failed_services` gains an `excluded` key and
+`features.vip` is new, so a consumer reading either by name is unaffected.
+
+### Added
+
+- **Virtual IP ownership check** (`get_vip_status`, feature key `vip`),
+  configured with `HEALTH_VIP`. Each node checks the configured address against
+  its own interfaces via `ip -o addr` and reports `held: true|false` with the
+  interface. In an active/passive pair this is the only definite answer to "who
+  is serving" — a GET against the VIP proves someone answered, not who — and
+  split-brain is two reports that both say `held`. Deliberately never affects
+  the health status: holding nothing is the correct state for the backup node.
+
+### Fixed
+
+- **`get_failed_services()` no longer counts the monitor's own unit.** With a
+  real exit code, a WARNING exits 1, systemd marks the oneshot `failed`, and the
+  next run counted that as a failed unit and warned again — a false alarm that
+  sustained itself after its cause was gone. The unit is still reported under a
+  new `excluded` key, so a genuinely broken monitor cannot erase itself from its
+  own report. Override the name with `HEALTH_SELF_UNIT`.
+- **The shipped unit no longer passes `--no-exit-code`**, so
+  `systemctl is-failed health-monitor.service` is the alerting signal
+  `systemd/README.md` always claimed it was. The flag remains for CI.
+- `HEALTH_JOURNAL_WINDOW` in the unit is `-15min`, matching its own guidance to
+  stay near the 2-minute timer interval; at `-1h` a single error burst stayed in
+  the alerts for an hour after it ended.
+- One canonical `HEALTH_SERVICES` pair across the unit and both READMEs, which
+  previously disagreed four ways.
+
 ## v3.0
 
 Replaces the `psutil` abstraction with direct reads of `/proc`, `/sys` and core

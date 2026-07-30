@@ -216,6 +216,59 @@ def test_firewall_none_active_is_a_finding_not_an_error(monkeypatch):
     assert result["active"] is None
 
 
+#one address per line, which is what `ip -o addr show` produces
+IP_ADDR_OUTPUT = (
+    "1: lo    inet 127.0.0.1/8 scope host lo\\       valid_lft forever\n"
+    "2: eth0    inet 192.168.71.251/24 brd 192.168.71.255 scope global eth0\\"
+    "       valid_lft forever\n"
+    "2: eth0    inet 192.168.71.250/32 scope global eth0\\       valid_lft forever\n"
+    "2: eth0    inet6 fe80::1/64 scope link \\       valid_lft forever\n"
+)
+
+
+def test_vip_reports_the_holder(monkeypatch):
+    monkeypatch.setenv(hc.VIP_ENV, "192.168.71.250")
+    _stub(hc, monkeypatch, stdout=IP_ADDR_OUTPUT)
+    result = hc.get_vip_status()
+    assert result["holds_vip"] is True
+    assert result["held_count"] == 1
+    assert result["data"][0] == {
+        "address": "192.168.71.250", "held": True, "interface": "eth0"
+    }
+
+
+def test_vip_absent_is_the_backup_nodes_normal_state(monkeypatch):
+    monkeypatch.setenv(hc.VIP_ENV, "192.168.71.250")
+    #the peer holds it: this host has only its own address
+    _stub(hc, monkeypatch, stdout="2: eth0    inet 192.168.71.252/24 scope global eth0")
+    result = hc.get_vip_status()
+    #success: the check answered. holds_vip False is data, not a failure
+    assert result["success"] is True
+    assert result["holds_vip"] is False
+    assert result["data"][0]["interface"] is None
+
+
+def test_vip_accepts_several_addresses(monkeypatch):
+    monkeypatch.setenv(hc.VIP_ENV, "192.168.71.250, 10.0.0.9")
+    _stub(hc, monkeypatch, stdout=IP_ADDR_OUTPUT)
+    result = hc.get_vip_status()
+    assert [entry["held"] for entry in result["data"]] == [True, False]
+    assert result["held_count"] == 1
+
+
+def test_vip_unconfigured_is_omitted_not_failed(monkeypatch):
+    monkeypatch.delenv(hc.VIP_ENV, raising=False)
+    result = hc.get_vip_status()
+    assert result["success"] is False
+    assert hc.VIP_ENV in result["reason"]
+
+
+def test_vip_degrades_without_ip_command(monkeypatch):
+    monkeypatch.setenv(hc.VIP_ENV, "192.168.71.250")
+    _stub(hc, monkeypatch, available=False)
+    assert hc.get_vip_status()["success"] is False
+
+
 def test_reboot_required_debian_flag_file(monkeypatch):
     monkeypatch.setattr(hc.os.path, "exists", lambda path: path == hc.DEBIAN_REBOOT_FLAG)
     monkeypatch.setattr(hc, "_read_file", lambda path: "linux-image-generic\nlibc6\n")
@@ -262,7 +315,7 @@ def test_reboot_required_degrades_without_indicator(monkeypatch):
 def test_live_checks_return_declared_shapes():
     #exercises the real host: each must answer, degraded or not
     for check in (hc.get_journal_errors, hc.get_time_sync,
-                  hc.get_security_module, hc.get_firewall):
+                  hc.get_security_module, hc.get_firewall, hc.get_vip_status):
         result = check()
         assert result["feature"]
         assert isinstance(result["success"], bool)

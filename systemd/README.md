@@ -1,6 +1,6 @@
 # Deployment (host, via systemd)
 
-The production path for v3.0 is a **systemd timer on the host**, not a container.
+The production path is a **systemd timer on the host**, not a container.
 `systemctl`, `journalctl`, `ss -tulnp` and host-scope process/disk views do not
 work meaningfully from inside a namespace, so a containerized agent reports on
 the container rather than on the machine you care about. The Docker image is
@@ -43,8 +43,13 @@ compiled in, so the same build serves any host.
 | `HEALTH_CONTAINER_USER` | Owner of a **rootless** container runtime (node2). |
 | `HEALTH_APP_ENDPOINTS` | `name=url` pairs for HTTP checks. Unset = feature omitted. |
 | `HEALTH_APP_TIMEOUT` | Per-endpoint timeout in seconds (default 2). |
-| `HEALTH_JOURNAL_WINDOW` | How far back to count journal errors (default `-1h`). |
+| `HEALTH_VIP` | Virtual IP(s) to check against this host's own interfaces. Unset = feature omitted. |
+| `HEALTH_JOURNAL_WINDOW` | How far back to count journal errors (code default `-1h`; the unit ships `-15min`). |
+| `HEALTH_SELF_UNIT` | This monitor's own unit, excluded from the failed count (default `health-monitor.service`). |
 | `HEALTH_{CPU,MEM,DISK}_{WARN,CRIT}` | Alert thresholds, in percent. Disk thresholds apply to *every* filesystem. |
+
+The unit ships with node1's values live. **Deploying to node2 means changing
+exactly three lines**, each marked `node2:` in the file.
 
 ### Unit names differ per host
 
@@ -52,33 +57,55 @@ compiled in, so the same build serves any host.
 SSH daemon, whose unit is `ssh` on Debian but `sshd` on RHEL:
 
 ```
-# Debian family (Docker host)
-Environment=HEALTH_SERVICES=docker,chronyd,ssh
+# node1 — Debian family, Docker
+Environment=HEALTH_SERVICES=nginx,docker,keepalived,prometheus,ssh
 ```
 
 ```
-# RHEL family (rootless Podman host)
-Environment=HEALTH_SERVICES=chronyd,sshd,firewalld
+# node2 — RHEL family, rootless Podman
+Environment=HEALTH_SERVICES=nginx,keepalived,prometheus,sshd,firewalld
 ```
 
 A unit that is not installed reports `not-installed` rather than `inactive`, so
-naming one that does not exist yet (nginx before the platform is deployed) is
-harmless and self-explanatory in the report.
+naming one that does not exist yet (nginx before the platform is deployed, or
+prometheus wherever it runs as a container rather than a unit) is harmless and
+self-explanatory in the report.
 
 ### Fleet dashboard
 
 Point each node's `HEALTH_APP_ENDPOINTS` at **both** nodes so either node's
-report shows the whole fleet's application health side by side:
+report shows the whole fleet's application health side by side. The same line
+goes on both nodes — `fleet-slo` is `127.0.0.1` so each node reports its own SLO
+view, and `vip` shows who is currently answering on the floating address:
 
 ```
-Environment=HEALTH_APP_ENDPOINTS=node1-health=http://192.168.71.251:8000/health,node2-health=http://192.168.71.252:8000/health,fleet-slo=http://192.168.71.251:8000/slo
+Environment=HEALTH_APP_ENDPOINTS=node1-health=http://192.168.71.251:8000/health,node2-health=http://192.168.71.252:8000/health,fleet-slo=http://127.0.0.1:8000/slo,vip=http://192.168.71.250/health
 ```
 
 OS metrics remain node-local — each report describes the host it ran on.
 Aggregating OS metrics across both nodes would need a collector; that is
 deliberately out of scope.
 
-## Two gotchas
+### Who holds the VIP
+
+`HEALTH_VIP` takes the same value on both nodes and is checked against the
+host's own interfaces (`ip -o addr`), so each node answers **for itself**:
+
+```
+Environment=HEALTH_VIP=192.168.71.250
+```
+
+This is the one fact no HTTP check can establish. A GET against the VIP proves
+*someone* answered, not *who* — and during a failover both nodes can answer in
+turn. The report gives a definite per-node `held: true|false`, and **split-brain
+is two reports that both say `held`**, which is why the value is identical on
+both nodes.
+
+It deliberately never affects the health status: holding nothing is the correct
+state for the backup node, and a node cannot tell from here whether its peer
+also holds the address.
+
+## Three gotchas
 
 **SELinux and `NoNewPrivileges`.** The unit deliberately does *not* set
 `NoNewPrivileges=yes`. On a RHEL host, `podman` transitions into the
@@ -115,6 +142,15 @@ so root's `podman ps` queries root's own empty store and reports nothing. Set
 `ProtectHome=yes`, since `su -` needs the target user's home to build their
 login session.
 
+This has a second consequence that is easy to "fix" wrongly. On node2 the
+application runs as a **rootless Quadlet under `systemctl --user`**. This
+monitor runs as root and queries the *system* manager, which has never heard of
+that unit — so adding it to `HEALTH_SERVICES` makes the report say
+`not-installed` forever. That is worse than leaving it out, because it reads as
+"the app is not deployed". Application liveness on node2 comes from the
+container check (`HEALTH_CONTAINER_USER`) and from `HEALTH_APP_ENDPOINTS`,
+never from the service list.
+
 **Privilege.** The service runs as root so that `ss -tulnp` process names, the
 system journal and unit state are all readable. Running unprivileged works and
 simply yields fewer fields — every collector degrades rather than failing.
@@ -130,3 +166,25 @@ unsynchronized clock is a WARNING** even when every resource threshold is fine,
 so the timer's exit status is a usable alerting signal on its own. Journal error
 *volume* deliberately does not affect the exit code — it is too noisy for that —
 but it does appear in the alerts, diagnosis and report.
+
+The unit therefore does **not** pass `--no-exit-code`; that flag exists for CI,
+where a warning about the runner is not a build failure. Alert on:
+
+```bash
+systemctl is-failed health-monitor.service
+```
+
+Two consequences of a real exit code, both intended:
+
+- **A WARNING leaves the unit in `failed`** until the next healthy run. That is
+  the signal working. It also means `systemctl --failed` lists the monitor —
+  so `get_failed_services()` excludes its own unit from the count. Without that
+  exclusion, exit 1 → unit `failed` → next run counts a failed unit → WARNING →
+  exit 1, a false alarm that outlives whatever started it. The unit is still
+  reported under `excluded`, so a genuinely broken monitor stays visible; set
+  `HEALTH_SELF_UNIT` if you renamed it.
+- **systemd logs each failed run at `err` priority**, so the journal error count
+  picks it up and the diagnosis may say "mostly from health-monitor.service".
+  Harmless — journal volume never affects the exit code — and honest: those
+  entries mean the monitor is warning. It ages out with
+  `HEALTH_JOURNAL_WINDOW`.

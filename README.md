@@ -1,4 +1,4 @@
-# Linux Health Monitor Agent v3.0
+# Linux Health Monitor Agent v3.1
 
 A lightweight, environment-aware system observability tool that collects system metrics and generates structured health reports with automated diagnosis and remediation guidance. Designed for safe, portable execution across Linux, WSL2, Docker, and CI/CD environments.
 
@@ -11,7 +11,7 @@ A lightweight, environment-aware system observability tool that collects system 
 1. Collects core system metrics — CPU, memory, every filesystem, load, disk I/O, network, uptime, process counts, and I/O pressure
 2. Detects the execution environment and **distro family** — so one build behaves correctly on Debian- and RHEL-family hosts
 3. Checks system features — services, failed units, containers (Docker *or* Podman), listening ports, log disk usage, and CPU temperature
-4. Checks host posture — journal errors, clock synchronization, SELinux/AppArmor mode, firewall, and pending reboots
+4. Checks host posture — journal errors, clock synchronization, SELinux/AppArmor mode, firewall, virtual IP ownership, and pending reboots
 5. Checks application endpoints — configurable HTTP health checks with status, latency, and parsed JSON body
 6. Evaluates health — threshold-based status (HEALTHY / WARNING / CRITICAL) with alerts, diagnosis, and suggested commands
 7. Outputs structured JSON for automation or an HTML report for human review
@@ -24,7 +24,7 @@ A lightweight, environment-aware system observability tool that collects system 
 
 ## Data Sources
 
-v3.0 reads the kernel's own interfaces instead of going through an abstraction layer. `/proc` is preferred where it is the stable source; commands are used where they are the natural tool.
+The agent reads the kernel's own interfaces instead of going through an abstraction layer. `/proc` is preferred where it is the stable source; commands are used where they are the natural tool.
 
 | Metric | Source | Why |
 |---|---|---|
@@ -141,7 +141,23 @@ HEALTH_CPU_CRIT=60 python3 -m agent.monitor
 | `HEALTH_CONTAINER_USER` | *(unset)* | Owner of a rootless container runtime |
 | `HEALTH_APP_ENDPOINTS` | *(unset)* | `name=url` pairs; unset omits the feature |
 | `HEALTH_APP_TIMEOUT` | 2 | Per-endpoint timeout in seconds |
+| `HEALTH_VIP` | *(unset)* | Virtual IP(s) to check against this host's own interfaces; unset omits the feature |
 | `HEALTH_JOURNAL_WINDOW` | `-1h` | How far back to count journal errors (`journalctl --since` syntax) |
+| `HEALTH_SELF_UNIT` | `health-monitor.service` | This monitor's own unit, excluded from the failed-unit count |
+
+### Virtual IP ownership
+
+For an active/passive pair, `HEALTH_VIP` answers which node currently holds the
+floating address — the one thing an HTTP check against that address cannot tell
+you, since a successful GET proves someone answered, not who.
+
+```bash
+HEALTH_VIP=192.168.71.250 python3 -m agent.monitor -a
+```
+
+Set the same value on every node in the pair: each reports `held: true|false`
+for itself, and split-brain is two reports that both say `held`. Never affects
+the health status — holding nothing is correct for the backup node.
 
 ### Application endpoint checks
 

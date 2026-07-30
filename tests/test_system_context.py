@@ -188,6 +188,53 @@ tcp   LISTEN 0      511                *:80                *:*     users:(("ngin
 """
 
 
+def _failed_units(monkeypatch, stdout):
+    monkeypatch.setattr(sc, "run_command", _fake_run({
+        "systemctl": {"stdout": stdout, "stderr": "", "returncode": 0, "success": True},
+    }))
+    return sc.get_failed_services("Linux")
+
+
+def test_failed_services_counts_units(monkeypatch):
+    monkeypatch.delenv(sc.SELF_UNIT_ENV, raising=False)
+    result = _failed_units(
+        monkeypatch,
+        "nginx.service loaded failed failed A\nchronyd.service loaded failed failed B",
+    )
+    assert result["count"] == 2
+    assert result["services"] == ["nginx.service", "chronyd.service"]
+    assert result["excluded"] == []
+
+
+def test_failed_services_excludes_the_monitors_own_unit(monkeypatch):
+    #without this, a WARNING exits 1, systemd marks this unit failed, and the
+    #next run counts it as a failed unit and warns again - forever
+    monkeypatch.delenv(sc.SELF_UNIT_ENV, raising=False)
+    result = _failed_units(
+        monkeypatch,
+        "health-monitor.service loaded failed failed Linux Health Monitor",
+    )
+    assert result["count"] == 0
+    assert result["services"] == []
+    #still visible, so a genuinely broken monitor does not erase itself
+    assert result["excluded"] == ["health-monitor.service"]
+
+
+def test_failed_services_self_exclusion_is_renameable(monkeypatch):
+    monkeypatch.setenv(sc.SELF_UNIT_ENV, "site-health")
+    result = _failed_units(
+        monkeypatch,
+        "site-health.service loaded failed failed X\nnginx.service loaded failed failed Y",
+    )
+    #a configured name without a suffix still matches systemctl's qualified one
+    assert result["services"] == ["nginx.service"]
+    assert result["excluded"] == ["site-health.service"]
+
+
+def test_failed_services_degrades_where_systemctl_is_meaningless():
+    assert sc.get_failed_services("Docker")["success"] is False
+
+
 def test_listening_ports_parses_ss_output(monkeypatch):
     monkeypatch.setattr(sc, "run_command", lambda cmd, timeout=3: {
         "stdout": SS_OUTPUT, "stderr": "", "returncode": 0, "success": True

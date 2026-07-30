@@ -1,7 +1,7 @@
 #host_checks.py
 """
-Host posture checks: logs, time sync, mandatory access control, firewall and
-pending reboots.
+Host posture checks: logs, time sync, mandatory access control, firewall,
+virtual IP ownership and pending reboots.
 
 These are the checks whose tooling differs most between distro families, so
 each one prefers the interface both families share:
@@ -34,6 +34,12 @@ FIREWALL_UNITS = ("firewalld", "ufw", "nftables", "iptables")
 
 #Time daemons, probed in order.
 TIME_SERVICES = ("systemd-timesyncd", "chronyd", "chrony", "ntpd", "ntpsec")
+
+#Virtual IPs this host may or may not currently hold, comma-separated. Generic
+#on purpose: a keepalived VIP, a pacemaker resource and a manually assigned
+#address are indistinguishable from the kernel's side, so the check asks the
+#only question that has a definite answer - is this address on this host.
+VIP_ENV = "HEALTH_VIP"
 
 SELINUX_ROOT = "/sys/fs/selinux"
 APPARMOR_ENABLED = "/sys/module/apparmor/parameters/enabled"
@@ -263,6 +269,73 @@ def get_firewall():
         "active": active,
         "detail": detail,
         "data": [{"unit": unit, "state": state} for unit, state in states.items()],
+    }
+
+
+def _host_addresses():
+    """
+    Returns {address: interface} for every IP currently on this host.
+
+    `ip -o addr` is one line per address, which is what makes this parseable
+    without pulling in a JSON dependency on hosts whose iproute2 predates
+    `-json`. Addresses are read from the kernel rather than from keepalived's
+    own state, so the answer is what is actually configured right now.
+    """
+    result = run_command(["ip", "-o", "addr", "show"])
+    if not result["stdout"]:
+        return None
+    addresses = {}
+    for line in result["stdout"].splitlines():
+        #"2: eth0    inet 192.168.71.251/24 brd ... scope global eth0"
+        fields = line.split()
+        if len(fields) < 4 or fields[2] not in ("inet", "inet6"):
+            continue
+        address = fields[3].split("/")[0]
+        addresses.setdefault(address, fields[1])
+    return addresses
+
+
+def get_vip_status():
+    """
+    Reports whether this host currently holds each configured virtual IP.
+
+    In an active/passive pair the VIP is the only thing that says which node is
+    actually serving, and it is the one fact no HTTP check can establish: a GET
+    against the VIP proves someone answered, not who. Deliberately never an
+    alert on its own - holding nothing is the correct state for the backup, and
+    a node has no way to know from here whether its peer also holds the address.
+    Split-brain is visible when both nodes' reports say held, which needs the
+    two reports side by side.
+    """
+    configured = [
+        address.strip()
+        for address in os.getenv(VIP_ENV, "").split(",")
+        if address.strip()
+    ]
+    if not configured:
+        return _unavailable("vip", f"no virtual IP configured (set {VIP_ENV})")
+    if not have("ip"):
+        return _unavailable("vip", "ip not available")
+
+    addresses = _host_addresses()
+    if addresses is None:
+        return _unavailable("vip", "ip addr returned no output")
+
+    data = [
+        {
+            "address": address,
+            "held": address in addresses,
+            "interface": addresses.get(address),
+        }
+        for address in configured
+    ]
+    held = [entry for entry in data if entry["held"]]
+    return {
+        "feature": "vip",
+        "success": True,
+        "holds_vip": bool(held),
+        "held_count": len(held),
+        "data": data,
     }
 
 

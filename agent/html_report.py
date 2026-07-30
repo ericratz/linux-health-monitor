@@ -188,10 +188,17 @@ def render_disk_details(disk_details):
 def render_failed_services(failed):
     if not failed.get("success"):
         return f'<p class="muted">{esc(failed.get("reason", "unavailable"))}</p>'
+    #the monitor's own unit is excluded from the count, but saying so keeps a
+    #genuinely broken monitor from erasing itself from its own report
+    excluded = failed.get("excluded") or []
+    note = "".join(
+        f'<p class="muted">{esc(unit)} failed (excluded from the count)</p>'
+        for unit in excluded
+    )
     if failed["count"] == 0:
-        return '<p class="muted">None</p>'
+        return note or '<p class="muted">None</p>'
     rows = "".join(f'<li class="bad">{esc(s)}</li>' for s in failed["services"])
-    return f"<ul>{rows}</ul>"
+    return f"<ul>{rows}</ul>{note}"
 
 
 def render_filesystems(filesystems, warn=80, crit=90):
@@ -281,6 +288,24 @@ def render_firewall(firewall):
     return f'<p class="good">{esc(active)} active</p>{suffix}'
 
 
+def render_vip(vip):
+    if not vip.get("success"):
+        return f'<p class="muted">{esc(vip.get("reason", "unavailable"))}</p>'
+    items = []
+    for entry in vip.get("data") or []:
+        address = f'<span class="mono">{esc(entry.get("address"))}</span>'
+        if entry.get("held"):
+            interface = esc(entry.get("interface") or "?")
+            state = f'<span class="good">held</span> on {interface}'
+        else:
+            #the backup node correctly holds nothing: neutral, not a fault
+            state = '<span class="muted">not held</span>'
+        items.append(f"<li>{address} &rarr; {state}</li>")
+    if not items:
+        return '<p class="muted">None configured</p>'
+    return f"<ul>{''.join(items)}</ul>"
+
+
 def render_reboot_required(reboot):
     if not reboot.get("success"):
         return f'<p class="muted">{esc(reboot.get("reason", "unavailable"))}</p>'
@@ -327,6 +352,7 @@ def render_features_card(features):
     time_html = render_time_sync(features.get("time_sync") or {})
     lsm_html = render_security_module(features.get("security_module") or {})
     firewall_html = render_firewall(features.get("firewall") or {})
+    vip_html = render_vip(features.get("vip") or {})
     reboot_html = render_reboot_required(features.get("reboot_required") or {})
     return f"""
 <div class="card">
@@ -345,6 +371,8 @@ def render_features_card(features):
     {lsm_html}
     <h3>Firewall</h3>
     {firewall_html}
+    <h3>Virtual IP</h3>
+    {vip_html}
     <h3>Reboot Required</h3>
     {reboot_html}
 </div>

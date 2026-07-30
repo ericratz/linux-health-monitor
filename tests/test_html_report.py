@@ -13,6 +13,7 @@ from agent.html_report import (
     render_disk_details,
     render_failed_services,
     render_services,
+    render_vip,
 )
 
 INJECTION = '<script>alert("xss")</script>'
@@ -58,6 +59,33 @@ def test_failed_service_names_are_escaped():
         "success": True, "count": 1, "services": [INJECTION]
     })
     assert "<script>" not in html
+
+
+def test_excluded_self_unit_is_still_shown(monkeypatch):
+    #excluded from the count, but not hidden: a broken monitor must stay visible
+    html = render_failed_services({
+        "success": True, "count": 0, "services": [],
+        "excluded": ["health-monitor.service"],
+    })
+    assert "health-monitor.service" in html
+    assert "excluded" in html
+
+
+def test_vip_interface_is_escaped():
+    html = render_vip({
+        "success": True, "holds_vip": True, "held_count": 1,
+        "data": [{"address": "10.0.0.1", "held": True, "interface": INJECTION}],
+    })
+    assert "<script>" not in html
+
+
+def test_vip_not_held_reads_neutral_not_bad():
+    html = render_vip({
+        "success": True, "holds_vip": False, "held_count": 0,
+        "data": [{"address": "10.0.0.1", "held": False, "interface": None}],
+    })
+    #the backup node holding nothing is correct, so it must not render as a fault
+    assert 'class="bad"' not in html
 
 
 def test_disk_detail_names_are_escaped():

@@ -33,6 +33,7 @@ from agent.host_checks import (
     get_time_sync,
     get_security_module,
     get_firewall,
+    get_vip_status,
     get_reboot_required,
 )
 from agent.html_report import generate_html, humanize_view
@@ -140,6 +141,9 @@ class HealthMonitor:
             "time_sync": get_time_sync(),
             "security_module": get_security_module(),
             "firewall": get_firewall(),
+            #reported, never scored: not holding the VIP is the correct state
+            #for the backup node, so it must not move the health status
+            "vip": get_vip_status(),
             "reboot_required": get_reboot_required(os_family),
             "app_checks": get_app_checks(),
         }
