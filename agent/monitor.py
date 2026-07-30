@@ -99,6 +99,8 @@ class HealthMonitor:
         time_sync = features.get("time_sync") or {}
         reboot = features.get("reboot_required") or {}
         failed = features.get("failed_services") or {}
+        services = features.get("services") or {}
+        app_checks = features.get("app_checks") or {}
         ctx = {
             "cpu": metrics["cpu"],
             "mem_used": mem,
@@ -109,6 +111,11 @@ class HealthMonitor:
             "processes": metrics.get("processes"),
             "journal_errors": journal if journal.get("success") else None,
             "failed_services": failed.get("count") if failed.get("success") else None,
+            #`systemctl --failed` only lists units that started and then broke,
+            #so a configured service that is stopped or was never installed is
+            #invisible to it. Both are scored from the configured list instead.
+            "services": services.get("data") if services.get("success") else None,
+            "app_checks": app_checks.get("data") if app_checks.get("success") else None,
             #only a positive answer is actionable; an unavailable check is not
             "time_desynchronized": (
                 time_sync.get("success") and not time_sync.get("synchronized")

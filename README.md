@@ -112,6 +112,8 @@ Flags can be combined: `python3 -m agent.monitor -a -H --no-exit-code`
 
 **Exit codes** (without `--no-exit-code`): `0` HEALTHY · `1` WARNING · `2` CRITICAL
 
+A configured service that is stopped or absent, and a configured endpoint that does not answer, are each a WARNING — see [systemd/README.md](systemd/README.md#exit-codes-and-alerting).
+
 ---
 
 ## Configuration
@@ -141,6 +143,7 @@ HEALTH_CPU_CRIT=60 python3 -m agent.monitor
 | `HEALTH_CONTAINER_USER` | *(unset)* | Owner of a rootless container runtime |
 | `HEALTH_APP_ENDPOINTS` | *(unset)* | `name=url` pairs; unset omits the feature |
 | `HEALTH_APP_TIMEOUT` | 2 | Per-endpoint timeout in seconds |
+| `HEALTH_APP_CRITICAL` | *(unset)* | Endpoint names that count toward the health status; unset scores all of them |
 | `HEALTH_VIP` | *(unset)* | Virtual IP(s) to check against this host's own interfaces; unset omits the feature |
 | `HEALTH_JOURNAL_WINDOW` | `-1h` | How far back to count journal errors (`journalctl --since` syntax) |
 | `HEALTH_SELF_UNIT` | `health-monitor.service` | This monitor's own unit, excluded from the failed-unit count |

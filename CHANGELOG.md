@@ -1,5 +1,43 @@
 # Changelog
 
+## Unreleased
+
+### Breaking
+
+- **Configured services and endpoints now drive the health status.** A unit in
+  `HEALTH_SERVICES` that is stopped, failed, masked or `not-installed` is a
+  WARNING, as is an endpoint in `HEALTH_APP_ENDPOINTS` that does not answer.
+  Both were collected and displayed but never scored, so a host could report
+  HEALTHY, exit 0, while running none of the services it was configured to
+  watch and failing every endpoint — observed on both nodes of a real pair.
+  `systemctl --failed` cannot close this gap: it lists only units that started
+  and then broke, so a service that was never installed is invisible to it.
+
+  **This changes exit codes.** A host whose `HEALTH_SERVICES` names units it
+  does not run will now exit 1 on every run and hold its unit in `failed`.
+  Sizing that list correctly used to be cosmetic; it is now load-bearing.
+
+  This also retires the documented promise that naming a not-yet-installed unit
+  is harmless. It is a finding: either the deployment has not happened or the
+  unit name is wrong for this distro.
+
+- Units caught mid-restart (`activating`, `deactivating`) and states that could
+  not be read (`unknown`) deliberately do not alarm — a poll landing during a
+  restart is not a fault, and an unavailable check is not evidence of one.
+
+### Added
+
+- **`HEALTH_APP_CRITICAL`** — endpoint names that count toward the status.
+  Unset scores every configured endpoint. Needed because a fleet dashboard
+  points each node at both nodes, so by default one node's outage alarms its
+  healthy peer, and a planned failover lights up the whole pair.
+- **The VIP check names whoever is answering when this node is not.** Read
+  passively from the neighbour cache, so `not held` becomes
+  `not held (answered by d8:44:89:a0:66:60)`. A peer's MAC means failover; an
+  unfamiliar one means the address already belongs to another device and
+  claiming it would collide — a case no HTTP check can detect, since the
+  address answers perfectly well.
+
 ## v3.1
 
 Makes the timer's exit status mean what the deployment docs always claimed, and

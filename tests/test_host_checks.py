@@ -248,6 +248,40 @@ def test_vip_absent_is_the_backup_nodes_normal_state(monkeypatch):
     assert result["data"][0]["interface"] is None
 
 
+def test_vip_not_held_names_whoever_is_answering(monkeypatch):
+    #the case an HTTP check cannot see: the VIP answers fine, but the responder
+    #is an unrelated device, so claiming the address would collide with it
+    monkeypatch.setattr(hc, "have", lambda cmd: True)
+
+    def runner(command, timeout=3):
+        if command[1] == "neigh":
+            out = "192.168.71.250 dev enp1s0 lladdr d8:44:89:a0:66:60 STALE"
+        else:
+            out = "2: enp1s0    inet 192.168.71.251/22 scope global enp1s0"
+        return {"stdout": out, "stderr": "", "returncode": 0, "success": True}
+
+    monkeypatch.setattr(hc, "run_command", runner)
+    monkeypatch.setenv(hc.VIP_ENV, "192.168.71.250")
+    entry = hc.get_vip_status()["data"][0]
+    assert entry["held"] is False
+    assert entry["answered_by"] == "d8:44:89:a0:66:60"
+
+
+def test_vip_not_held_and_nothing_answering(monkeypatch):
+    monkeypatch.setenv(hc.VIP_ENV, "10.0.0.9")
+    _stub(hc, monkeypatch, stdout="2: eth0    inet 192.168.71.252/24 scope global eth0")
+    #an empty neighbour cache is not an error: nobody has the address
+    assert hc.get_vip_status()["data"][0]["answered_by"] is None
+
+
+def test_vip_held_does_not_probe_the_neighbour_cache(monkeypatch):
+    monkeypatch.setenv(hc.VIP_ENV, "192.168.71.250")
+    _stub(hc, monkeypatch, stdout="2: eth0    inet 192.168.71.250/32 scope global eth0")
+    entry = hc.get_vip_status()["data"][0]
+    assert entry["held"] is True
+    assert "answered_by" not in entry
+
+
 def test_vip_accepts_several_addresses(monkeypatch):
     monkeypatch.setenv(hc.VIP_ENV, "192.168.71.250, 10.0.0.9")
     _stub(hc, monkeypatch, stdout=IP_ADDR_OUTPUT)

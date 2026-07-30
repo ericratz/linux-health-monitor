@@ -295,6 +295,26 @@ def _host_addresses():
     return addresses
 
 
+def _neighbour_mac(address):
+    """
+    Returns the MAC currently answering for an address, or None.
+
+    Read from the neighbour cache rather than by probing: this is passive, and
+    the entry exists precisely because something on this segment replied. A
+    MAC here when no node in the pair holds the address is the signal that the
+    VIP belongs to an unrelated device - the case that is otherwise invisible,
+    since an HTTP check against it answers perfectly well.
+    """
+    result = run_command(["ip", "neigh", "show", address])
+    if not result["stdout"]:
+        return None
+    fields = result["stdout"].split()
+    #"192.168.71.250 dev enp1s0 lladdr d8:44:89:a0:66:60 STALE"
+    if "lladdr" in fields:
+        return fields[fields.index("lladdr") + 1]
+    return None
+
+
 def get_vip_status():
     """
     Reports whether this host currently holds each configured virtual IP.
@@ -321,14 +341,19 @@ def get_vip_status():
     if addresses is None:
         return _unavailable("vip", "ip addr returned no output")
 
-    data = [
-        {
+    data = []
+    for address in configured:
+        entry = {
             "address": address,
             "held": address in addresses,
             "interface": addresses.get(address),
         }
-        for address in configured
-    ]
+        if not entry["held"]:
+            #naming the responder turns "not held" into something actionable:
+            #a peer's MAC means failover, an unknown one means the address is
+            #already someone else's and claiming it would collide
+            entry["answered_by"] = _neighbour_mac(address)
+        data.append(entry)
     held = [entry for entry in data if entry["held"]]
     return {
         "feature": "vip",

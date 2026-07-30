@@ -93,6 +93,103 @@ def test_failed_unit_makes_an_idle_host_a_warning():
     assert "Run: systemctl --failed" in generate_recommendations(ctx, "Linux", "rhel")
 
 
+def test_stopped_configured_service_is_a_warning():
+    #the gap this closes: `systemctl --failed` only lists units that started
+    #and then broke, so a stopped one leaves failed_services at zero
+    ctx = {**HEALTHY, "failed_services": 0, "services": [
+        {"service": "nginx", "status": "inactive"},
+        {"service": "ssh", "status": "active"},
+    ]}
+    assert generate_health_status(ctx) == "WARNING"
+    assert any("nginx" in alert for alert in generate_alerts(ctx))
+    actions = generate_recommendations(ctx, "Linux", "debian")
+    assert "Run: systemctl status nginx --no-pager" in actions
+
+
+def test_absent_service_is_reported_separately_from_a_stopped_one():
+    #"never built this way" and "it crashed" send a reader to different places
+    ctx = {**HEALTHY, "services": [
+        {"service": "keepalived", "status": "not-installed"},
+        {"service": "nginx", "status": "failed"},
+    ]}
+    assert generate_health_status(ctx) == "WARNING"
+    alerts = " ".join(generate_alerts(ctx))
+    assert "keepalived" in alerts and "absent" in alerts
+    assert "nginx" in alerts and "not running" in alerts
+    #the unit-name trap (ssh vs sshd) is what this action exists to catch
+    actions = generate_recommendations(ctx, "Linux", "debian")
+    assert "Run: systemctl list-unit-files | grep keepalived" in actions
+
+
+def test_restarting_service_does_not_flap_the_status():
+    #a poll landing mid-restart must not alarm
+    for state in ("activating", "deactivating", "reloading", "unknown"):
+        ctx = {**HEALTHY, "services": [{"service": "nginx", "status": state}]}
+        assert generate_health_status(ctx) == "HEALTHY", state
+        assert generate_alerts(ctx) == [], state
+
+
+def test_all_services_healthy_stays_healthy():
+    ctx = {**HEALTHY, "services": [
+        {"service": "nginx", "status": "active"},
+        {"service": "sshd", "status": "active"},
+    ]}
+    assert generate_health_status(ctx) == "HEALTHY"
+    assert generate_alerts(ctx) == []
+
+
+def test_failing_endpoint_is_a_warning():
+    ctx = {**HEALTHY, "app_checks": [
+        {"name": "api", "success": False, "error": "Connection refused"},
+        {"name": "slo", "success": True, "http_status": 200},
+    ]}
+    assert generate_health_status(ctx) == "WARNING"
+    assert any("api" in alert for alert in generate_alerts(ctx))
+    #a service can be active while the application behind it is not
+    assert any("behind it" in note for note in generate_diagnostics(ctx))
+
+
+def test_endpoint_that_answered_badly_reports_its_status_code():
+    #404 from the VIP is a live host that is not your application - a different
+    #problem from nothing answering at all
+    ctx = {**HEALTHY, "app_checks": [
+        {"name": "vip", "success": False, "http_status": 404,
+         "url": "http://192.168.71.250/health"},
+    ]}
+    assert any("404" in alert for alert in generate_alerts(ctx))
+    #the suggested command must name the URL, or it cannot be run as printed
+    actions = generate_recommendations(ctx, "Linux", "debian")
+    assert any("http://192.168.71.250/health" in action for action in actions)
+
+
+def test_critical_endpoint_subset_limits_what_alarms(monkeypatch):
+    #each node points at both nodes, so without this a peer's outage - or a
+    #planned failover - alarms the healthy node too
+    monkeypatch.setenv("HEALTH_APP_CRITICAL", "fleet-slo")
+    ctx = {**HEALTHY, "app_checks": [
+        {"name": "node2-health", "success": False, "error": "No route to host"},
+        {"name": "fleet-slo", "success": True, "http_status": 200},
+    ]}
+    assert generate_health_status(ctx) == "HEALTHY"
+    assert generate_alerts(ctx) == []
+
+
+def test_unset_critical_subset_scores_every_endpoint(monkeypatch):
+    monkeypatch.delenv("HEALTH_APP_CRITICAL", raising=False)
+    ctx = {**HEALTHY, "app_checks": [
+        {"name": "node2-health", "success": False, "error": "No route to host"},
+    ]}
+    assert generate_health_status(ctx) == "WARNING"
+
+
+def test_unavailable_service_and_endpoint_checks_do_not_invent_faults():
+    #on WSL2/Docker these collectors report success=False, so monitor.py passes
+    #None. An unavailable check must never read as a finding.
+    ctx = {**HEALTHY, "services": None, "app_checks": None}
+    assert generate_health_status(ctx) == "HEALTHY"
+    assert generate_alerts(ctx) == []
+
+
 def test_clock_skew_is_a_warning():
     ctx = {**HEALTHY, "time_desynchronized": True}
     assert generate_health_status(ctx) == "WARNING"

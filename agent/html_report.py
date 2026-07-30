@@ -300,6 +300,9 @@ def render_vip(vip):
         else:
             #the backup node correctly holds nothing: neutral, not a fault
             state = '<span class="muted">not held</span>'
+            answered_by = entry.get("answered_by")
+            if answered_by:
+                state += f' <span class="muted">(answered by {esc(answered_by)})</span>'
         items.append(f"<li>{address} &rarr; {state}</li>")
     if not items:
         return '<p class="muted">None configured</p>'

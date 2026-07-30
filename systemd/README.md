@@ -40,6 +40,10 @@ sudo install -m 644 systemd/node2.conf /etc/systemd/system/health-monitor.servic
 sudo systemctl daemon-reload
 ```
 
+Note what this install does **not** do: it never copies `systemd/` into `/opt`.
+The checkout stays wherever you cloned it (`~/linux-health-monitor`), and every
+command in this file is run from there.
+
 ## Upgrading
 
 **The unit file is a separate installed copy from the code.** Pulling the repo
@@ -49,7 +53,10 @@ gives you new code running under old configuration — and nothing about that
 state looks broken, because the service still starts, still runs on schedule and
 still writes a report. It just quietly ignores every setting you added.
 
-So an upgrade is always **both** copies, then a reload:
+So an upgrade is always **both** copies, then a reload. **Run these from your
+repo checkout** (`~/linux-health-monitor`), not from `/opt`: the install is a
+copy, so `/opt/linux-health-monitor` holds only `agent/` and `reports/` — there
+is no `systemd/` directory there, and `git pull` cannot reach it.
 
 ```bash
 sudo cp -r agent /opt/linux-health-monitor/
@@ -80,6 +87,20 @@ Verify a drop-in is still winning after an upgrade:
 systemctl show health-monitor.service -p Environment -p ProtectHome --no-pager
 ```
 
+**Check for drop-ins you did not install.** Drop-ins apply in lexicographic
+filename order and the last one wins, so a leftover `override.conf` — the name
+`systemctl edit` generates — silently beats `node2.conf` and every value it
+sets. `systemctl show` cannot reveal this: it reports the merged result, so a
+stale file looks exactly like a correct one. Ask which files contributed:
+
+```bash
+systemctl cat health-monitor.service --no-pager
+```
+
+That lists the unit and each drop-in with its path, in the order applied. Any
+file there that is not `node2.conf` predates this scheme and should be removed
+rather than merged, since its values are the ones the repo now owns.
+
 ## Per-host configuration
 
 All configuration is `Environment=` lines in the `.service` file — nothing is
@@ -91,6 +112,7 @@ compiled in, so the same build serves any host.
 | `HEALTH_CONTAINER_USER` | Owner of a **rootless** container runtime (node2). |
 | `HEALTH_APP_ENDPOINTS` | `name=url` pairs for HTTP checks. Unset = feature omitted. |
 | `HEALTH_APP_TIMEOUT` | Per-endpoint timeout in seconds (default 2). |
+| `HEALTH_APP_CRITICAL` | Endpoint names that count toward the health status. Unset = all of them. |
 | `HEALTH_VIP` | Virtual IP(s) to check against this host's own interfaces. Unset = feature omitted. |
 | `HEALTH_JOURNAL_WINDOW` | How far back to count journal errors (code default `-1h`; the unit ships `-15min`). |
 | `HEALTH_SELF_UNIT` | This monitor's own unit, excluded from the failed count (default `health-monitor.service`). |
@@ -116,9 +138,14 @@ Environment=HEALTH_SERVICES=nginx,keepalived,prometheus,sshd,firewalld
 ```
 
 A unit that is not installed reports `not-installed` rather than `inactive`, so
-naming one that does not exist yet (nginx before the platform is deployed, or
-prometheus wherever it runs as a container rather than a unit) is harmless and
-self-explanatory in the report.
+the report distinguishes "never installed" from "installed but stopped".
+
+**Both are a WARNING.** Naming a unit that does not exist is not harmless: it
+means the host is not built the way `HEALTH_SERVICES` says it is, which is
+either a deployment that has not happened or a unit name that is wrong for this
+distro — `ssh` on a RHEL host, for instance. If a service genuinely runs as a
+container rather than a unit, take it out of the list and let the container
+check and `HEALTH_APP_ENDPOINTS` cover it.
 
 ### Fleet dashboard
 
@@ -212,11 +239,29 @@ count. Reading the system journal otherwise needs group `adm` on Debian or
 
 ## Exit codes and alerting
 
-`0` HEALTHY · `1` WARNING · `2` CRITICAL. A **failed systemd unit or an
-unsynchronized clock is a WARNING** even when every resource threshold is fine,
-so the timer's exit status is a usable alerting signal on its own. Journal error
-*volume* deliberately does not affect the exit code — it is too noisy for that —
-but it does appear in the alerts, diagnosis and report.
+`0` HEALTHY · `1` WARNING · `2` CRITICAL. These are all a **WARNING** even when
+every resource threshold is fine, so the timer's exit status is a usable
+alerting signal on its own:
+
+- a failed systemd unit, or an unsynchronized clock
+- a unit in `HEALTH_SERVICES` that is stopped, failed, masked or **not
+  installed** — `systemctl --failed` cannot see any of these, because it lists
+  only units that started and then broke
+- an endpoint in `HEALTH_APP_ENDPOINTS` that does not answer, narrowable with
+  `HEALTH_APP_CRITICAL`
+
+A unit caught mid-restart (`activating`, `deactivating`) does not alarm, and
+neither does a check that could not read a state at all — an unavailable
+collector is not evidence of a fault.
+
+Journal error *volume* deliberately does not affect the exit code — it is too
+noisy for that — but it does appear in the alerts, diagnosis and report. Nor
+does VIP ownership: holding nothing is correct for the backup node.
+
+**Sizing the service list matters now.** Before this, `HEALTH_SERVICES` was
+reporting-only, so an over-broad list cost nothing. It now drives the exit code,
+which means a list naming units this host will never run keeps the unit
+permanently `failed` and drowns the signal.
 
 The unit therefore does **not** pass `--no-exit-code`; that flag exists for CI,
 where a warning about the runner is not a build failure. Alert on:

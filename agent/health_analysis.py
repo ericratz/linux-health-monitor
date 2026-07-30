@@ -12,6 +12,23 @@ import os
 #Above this, iowait is high enough that the CPU number alone is misleading.
 IOWAIT_WARN = 10.0
 
+#Unit states that mean the service is doing its job. `reloading` is included
+#because a unit re-reading its config is still serving.
+HEALTHY_SERVICE_STATES = ("active", "reloading")
+
+#Neither healthy nor a fault. A poll that lands mid-restart must not alarm, and
+#a state we could not read is not evidence of a problem - the same principle
+#every collector here follows: degrade, never invent a finding.
+TRANSIENT_SERVICE_STATES = ("activating", "deactivating", "unknown")
+
+#These say the host was never built the way HEALTH_SERVICES claims, as opposed
+#to a service that existed and then broke. Different problem, different fix.
+MISCONFIGURED_SERVICE_STATES = ("not-installed", "masked")
+
+#Optional subset of endpoint names that count toward the health status. Unset
+#means every configured endpoint counts.
+APP_CRITICAL_ENV = "HEALTH_APP_CRITICAL"
+
 
 def _env_float(name, default):
     try:
@@ -64,6 +81,71 @@ def _pressure(ctx):
     return ctx.get("pressure") or {}
 
 
+def _service_faults(ctx):
+    """
+    Splits the configured services into runtime faults and configuration faults.
+
+    Both break HEALTHY, but they are not the same finding and must not be
+    reported as one. "nginx crashed" sends a reader to the journal;
+    "nginx is not installed" says the host was never built the way
+    HEALTH_SERVICES describes, or that the list names a unit this distro calls
+    something else - the ssh/sshd split being the obvious trap.
+    """
+    stopped, missing = [], []
+    for service in ctx.get("services") or []:
+        status = service.get("status")
+        name = service.get("service")
+        if status in MISCONFIGURED_SERVICE_STATES:
+            missing.append(f"{name} ({status})")
+        elif status in HEALTHY_SERVICE_STATES or status in TRANSIENT_SERVICE_STATES:
+            continue
+        else:
+            stopped.append(f"{name} ({status})")
+    return stopped, missing
+
+
+def _critical_endpoints():
+    """
+    Returns the endpoint names that count toward the status, empty = all.
+    """
+    raw = os.getenv(APP_CRITICAL_ENV, "").strip()
+    return {name.strip() for name in raw.split(",") if name.strip()}
+
+
+def _endpoint_failures(ctx):
+    """
+    Returns the checks for configured endpoints that did not answer.
+
+    Every configured endpoint counts by default: configuring one is a statement
+    that you care whether it answers. HEALTH_APP_CRITICAL narrows that to a
+    named subset, which is what a fleet dashboard needs - each node points at
+    both nodes, so by default one node's outage alarms its peer as well, and a
+    planned failover lights up the entire pair.
+
+    The whole check is returned rather than a formatted string so a suggested
+    command can name the URL it would actually retry.
+    """
+    critical = _critical_endpoints()
+    return [
+        check
+        for check in (ctx.get("app_checks") or [])
+        if not check.get("success")
+        and not (critical and check.get("name") not in critical)
+    ]
+
+
+def _endpoint_label(check):
+    """
+    Names an endpoint and why it failed.
+
+    An error means nothing answered at all; a status code means something did,
+    which is a different problem - the VIP answering 404 is a live host that is
+    not your application.
+    """
+    detail = check.get("error") or f"HTTP {check.get('http_status')}"
+    return f"{check.get('name')} ({detail})"
+
+
 def generate_health_status(ctx):
     """
     Returns HEALTHY, WARNING or CRITICAL.
@@ -71,6 +153,11 @@ def generate_health_status(ctx):
     Resource thresholds decide CRITICAL. A failed unit or an unsynchronized
     clock is at least a WARNING regardless of resource use: a host with a dead
     service is not healthy just because its CPU is idle.
+
+    The same applies to what the host was asked to run. A configured service
+    that is stopped or absent, or a configured endpoint that does not answer,
+    is a WARNING - `systemctl --failed` alone cannot see either, because it
+    only lists units that started and then broke.
     """
     t = _thresholds()
     cpu, mem = ctx["cpu"], ctx["mem_used"]
@@ -80,6 +167,8 @@ def generate_health_status(ctx):
     if cpu > t["cpu_warn"] or mem > t["mem_warn"] or disk > t["disk_warn"]:
         return "WARNING"
     if ctx.get("failed_services") or ctx.get("time_desynchronized"):
+        return "WARNING"
+    if any(_service_faults(ctx)) or _endpoint_failures(ctx):
         return "WARNING"
     return "HEALTHY"
 
@@ -114,6 +203,15 @@ def generate_alerts(ctx):
     failed = ctx.get("failed_services")
     if failed:
         alerts.append(f"{failed} failed systemd unit(s)")
+    stopped, missing = _service_faults(ctx)
+    if stopped:
+        alerts.append(f"Service(s) not running: {', '.join(stopped)}")
+    if missing:
+        alerts.append(f"Configured service(s) absent: {', '.join(missing)}")
+    endpoint_failures = _endpoint_failures(ctx)
+    if endpoint_failures:
+        labels = ", ".join(_endpoint_label(check) for check in endpoint_failures)
+        alerts.append(f"Endpoint(s) not answering: {labels}")
     if ctx.get("time_desynchronized"):
         alerts.append("Clock not synchronized")
     journal_errors = ctx.get("journal_errors") or {}
@@ -170,6 +268,26 @@ def generate_diagnostics(ctx):
         notes.append(
             f"{failed} systemd unit(s) failed -> identify them before looking further"
         )
+    stopped, missing = _service_faults(ctx)
+    if stopped:
+        notes.append(
+            f"{len(stopped)} configured service(s) not running -> the host is "
+            "not doing what it was configured to do, whatever the resource "
+            "graphs say"
+        )
+    if missing:
+        notes.append(
+            f"{len(missing)} configured service(s) absent -> either the host "
+            "was never built this way, or HEALTH_SERVICES names a unit this "
+            "distro calls something else (ssh vs sshd)"
+        )
+    endpoint_failures = _endpoint_failures(ctx)
+    if endpoint_failures:
+        notes.append(
+            f"{len(endpoint_failures)} endpoint(s) not answering -> the "
+            "service may be running while the application behind it is not"
+        )
+
     journal_errors = ctx.get("journal_errors") or {}
     if journal_errors.get("count"):
         units = ", ".join(
@@ -227,6 +345,22 @@ def generate_recommendations(ctx, env, os_family="unknown"):
 
     if (ctx.get("failed_services") or 0) > 0:
         actions.append("Run: systemctl --failed")
+
+    stopped, missing = _service_faults(ctx)
+    for entry in stopped:
+        unit = entry.split(" (")[0]
+        actions.append(f"Run: systemctl status {unit} --no-pager")
+    for entry in missing:
+        unit = entry.split(" (")[0]
+        #naming the wrong unit and never installing it look identical in the
+        #report, so the check that tells them apart is the one worth running
+        actions.append(f"Run: systemctl list-unit-files | grep {unit}")
+    for check in _endpoint_failures(ctx):
+        url = check.get("url")
+        if url:
+            actions.append(
+                "Run: curl -sS -o /dev/null -w '%{http_code}\\n' " + url
+            )
 
     journal_errors = ctx.get("journal_errors") or {}
     if journal_errors.get("count"):
