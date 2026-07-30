@@ -25,6 +25,15 @@
   not be read (`unknown`) deliberately do not alarm — a poll landing during a
   restart is not a fault, and an unavailable check is not evidence of one.
 
+### Fixed
+
+- **CI's exit-code assertion was flaky and imprecise.** It drove CRITICAL with
+  `HEALTH_CPU_CRIT=0`, but an idle runner can measure exactly 0.0% CPU over the
+  0.3s sampling window, and `0.0 > 0` is false — so the run came back HEALTHY
+  and failed the step. It also only tested for *non-zero*, meaning a WARNING
+  satisfied a check named CRITICAL. Now driven by used memory, which is never
+  zero, and each case asserts its exact code.
+
 ### Added
 
 - **`HEALTH_APP_CRITICAL`** — endpoint names that count toward the status.

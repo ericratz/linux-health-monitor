@@ -71,11 +71,25 @@ jobs:
           python -m agent.monitor -a -H --no-exit-code > /dev/null
           python -m agent.monitor --version
 
+      # Driven by memory, not CPU. An idle runner can measure exactly 0.0% CPU
+      # over the 0.3s sampling window, and 0.0 > 0 is false, so HEALTH_CPU_CRIT=0
+      # intermittently produced HEALTHY and failed this step. Used memory is
+      # never zero on a real host.
+      #
+      # Each case asserts the exact code: the previous form only tested
+      # "non-zero", so a WARNING silently satisfied a check named CRITICAL.
       - name: Test exit codes
         run: |
-          HEALTH_CPU_CRIT=0 python -m agent.monitor > /dev/null && \
-            { echo "expected a non-zero exit for CRITICAL"; exit 1; }
-          HEALTH_CPU_CRIT=0 python -m agent.monitor --no-exit-code > /dev/null
+          code=0; HEALTH_MEM_CRIT=0 python -m agent.monitor > /dev/null || code=$?
+          test "$code" -eq 2 || { echo "expected exit 2 (CRITICAL), got $code"; exit 1; }
+
+          # every CRIT raised out of the way, so only the WARN threshold can fire
+          code=0; HEALTH_MEM_WARN=0 HEALTH_MEM_CRIT=100 HEALTH_CPU_CRIT=100 \
+            HEALTH_DISK_CRIT=100 python -m agent.monitor > /dev/null || code=$?
+          test "$code" -eq 1 || { echo "expected exit 1 (WARNING), got $code"; exit 1; }
+
+          code=0; HEALTH_MEM_CRIT=0 python -m agent.monitor --no-exit-code > /dev/null || code=$?
+          test "$code" -eq 0 || { echo "expected exit 0 with --no-exit-code, got $code"; exit 1; }
 
       - name: Test configurable thresholds
         run: |
