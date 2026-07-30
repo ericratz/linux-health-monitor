@@ -32,6 +32,54 @@ systemctl list-timers health-monitor.timer
 
 The report lands at `/opt/linux-health-monitor/reports/report.html`.
 
+On node2, also install the drop-in:
+
+```bash
+sudo mkdir -p /etc/systemd/system/health-monitor.service.d
+sudo install -m 644 systemd/node2.conf /etc/systemd/system/health-monitor.service.d/node2.conf
+sudo systemctl daemon-reload
+```
+
+## Upgrading
+
+**The unit file is a separate installed copy from the code.** Pulling the repo
+updates `/opt/linux-health-monitor`; it does not touch
+`/etc/systemd/system/health-monitor.service`. Updating one without the other
+gives you new code running under old configuration — and nothing about that
+state looks broken, because the service still starts, still runs on schedule and
+still writes a report. It just quietly ignores every setting you added.
+
+So an upgrade is always **both** copies, then a reload:
+
+```bash
+sudo cp -r agent /opt/linux-health-monitor/
+sudo install -m 644 systemd/health-monitor.service systemd/health-monitor.timer /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl restart health-monitor.service
+```
+
+Then confirm the *running* unit is the one you just shipped, rather than
+trusting that the copy landed:
+
+```bash
+systemctl show health-monitor.service -p ExecStart -p Environment --no-pager
+```
+
+`--no-pager` matters here: `systemctl show` without it hands long values to a
+pager, and the wrapped output is easy to misread.
+
+Note the `install` rather than `cp` for the unit: it overwrites in place with a
+fixed mode. That is safe **only because no host hand-edits the unit** — per-host
+values live in drop-ins under
+`/etc/systemd/system/health-monitor.service.d/`, which the overwrite leaves
+alone and which re-apply on reload. Editing the unit on a node instead means the
+next upgrade silently reverts it.
+
+Verify a drop-in is still winning after an upgrade:
+
+```bash
+systemctl show health-monitor.service -p Environment -p ProtectHome --no-pager
+```
+
 ## Per-host configuration
 
 All configuration is `Environment=` lines in the `.service` file — nothing is
@@ -48,8 +96,9 @@ compiled in, so the same build serves any host.
 | `HEALTH_SELF_UNIT` | This monitor's own unit, excluded from the failed count (default `health-monitor.service`). |
 | `HEALTH_{CPU,MEM,DISK}_{WARN,CRIT}` | Alert thresholds, in percent. Disk thresholds apply to *every* filesystem. |
 
-The unit ships with node1's values live. **Deploying to node2 means changing
-exactly three lines**, each marked `node2:` in the file.
+The unit ships with node1's values live and is **copied verbatim to every
+host**. node2's three differences live in `systemd/node2.conf`, installed as a
+drop-in — never as an edit to the unit. See [Upgrading](#upgrading) for why.
 
 ### Unit names differ per host
 
@@ -141,6 +190,8 @@ so root's `podman ps` queries root's own empty store and reports nothing. Set
 `HEALTH_CONTAINER_USER` to the owning user — and then also comment out
 `ProtectHome=yes`, since `su -` needs the target user's home to build their
 login session.
+
+Both settings live in `systemd/node2.conf`, so they survive an upgrade.
 
 This has a second consequence that is easy to "fix" wrongly. On node2 the
 application runs as a **rootless Quadlet under `systemctl --user`**. This

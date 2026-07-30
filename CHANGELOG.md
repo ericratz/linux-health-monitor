@@ -10,6 +10,21 @@ No breaking changes. `features.failed_services` gains an `excluded` key and
 
 ### Added
 
+- **`systemd/node2.conf`, a drop-in for per-host configuration.** The unit file
+  is now copied verbatim to every host and never hand-edited: node2's three
+  differences (services list, `HEALTH_CONTAINER_USER`, `ProtectHome=no`) install
+  to `/etc/systemd/system/health-monitor.service.d/` instead. Editing the unit
+  on a node does not survive an upgrade, and the resulting state — new code,
+  reverted configuration — looks completely healthy, because the service still
+  starts, still runs on schedule and still writes a report.
+- **An `Upgrading` section in `systemd/README.md`.** The unit is an installed
+  copy separate from the code, so `git pull` updates one and not the other. The
+  install instructions never said so, which is exactly how a node ends up
+  running new code under an old unit.
+- **Alerts now render in the HTML report.** The card showed status and
+  diagnosis but never the alerts, so a deployed `WARNING` could not always
+  explain itself from the artifact a reader actually has — the cause was only
+  in the JSON.
 - **Virtual IP ownership check** (`get_vip_status`, feature key `vip`),
   configured with `HEALTH_VIP`. Each node checks the configured address against
   its own interfaces via `ip -o addr` and reports `held: true|false` with the

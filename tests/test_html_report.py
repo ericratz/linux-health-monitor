@@ -61,6 +61,31 @@ def test_failed_service_names_are_escaped():
     assert "<script>" not in html
 
 
+def test_alerts_reach_the_report_so_a_warning_explains_itself():
+    #a deployed report is often the only artifact a reader has; a status with
+    #no stated cause sends them to the JSON to answer "why"
+    html = generate_html({
+        "system": {"hostname": "node1"},
+        "core_metrics": {"cpu": 1.0},
+        "health": {
+            "status": "WARNING",
+            "alerts": ["2 failed systemd unit(s)"],
+            "diagnosis": ["2 systemd unit(s) failed"],
+        },
+    })
+    assert "2 failed systemd unit(s)" in html
+
+
+def test_alert_text_is_escaped():
+    #alerts interpolate unit names, which come from the host
+    html = generate_html({
+        "system": {"hostname": "node1"},
+        "core_metrics": {"cpu": 1.0},
+        "health": {"status": "WARNING", "alerts": [INJECTION], "diagnosis": []},
+    })
+    assert "<script>" not in html
+
+
 def test_excluded_self_unit_is_still_shown(monkeypatch):
     #excluded from the count, but not hidden: a broken monitor must stay visible
     html = render_failed_services({

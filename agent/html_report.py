@@ -480,6 +480,7 @@ def generate_html(data):
     features = format_disk_details(data.get("features", {}))
     status = data.get("health", {}).get("status")
     diagnosis = data.get("health", {}).get("diagnosis", [])
+    alerts = data.get("health", {}).get("alerts", [])
     actions = data.get("health", {}).get("actions", [])
 
     #the hostname matters once reports from several nodes are served together
@@ -576,6 +577,13 @@ def generate_html(data):
             "CRITICAL": "bad"
         }.get(status, "warn")
         diag_items = "".join(f"<li>{esc(d)}</li>" for d in diagnosis)
+        #alerts are what actually drove the status. Without them a report can
+        #read "WARNING" over a diagnosis that explains nothing, which leaves
+        #the one question the reader has - why - answerable only from the JSON.
+        alert_items = "".join(f'<li class="warn">{esc(a)}</li>' for a in alerts)
+        alert_block = f"""
+    <h3>Alerts</h3>
+    <ul>{alert_items}</ul>""" if alert_items else ""
         #suggested commands, never executed: a person decides whether to run them
         action_items = "".join(f'<li class="mono">{esc(a)}</li>' for a in actions)
         action_block = f"""
@@ -586,7 +594,7 @@ def generate_html(data):
 <div class="card">
     <h2>Health</h2>
     <p class="{css_class}" style="font-size:1.2em; font-weight:bold; margin:0 0 8px">{esc(status)}</p>
-    <ul>{diag_items}</ul>{action_block}
+    <ul>{diag_items}</ul>{alert_block}{action_block}
 </div>
 """
 

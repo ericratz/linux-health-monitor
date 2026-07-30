@@ -31,8 +31,11 @@ Environment=PYTHONPATH=/opt/linux-health-monitor
 Environment=PYTHONUNBUFFERED=1
 
 # --- Per-host configuration -------------------------------------------------
-# Shipped with node1's values live. Deploying to node2 means changing exactly
-# three lines, each marked "node2:" below.
+# Shipped with node1's values live. THIS FILE IS COPIED VERBATIM TO EVERY HOST:
+# do not hand-edit it on a node. Per-host divergence belongs in a drop-in under
+# /etc/systemd/system/health-monitor.service.d/, because upgrading means copying
+# this file over the installed one - which destroys any local edit, silently,
+# while the service keeps starting and reporting. See systemd/node2.conf.
 
 # Units worth watching. Genuinely differs per host: node1 runs Docker, node2
 # runs rootless Podman; the SSH unit is `ssh` on Debian and `sshd` on RHEL.
@@ -40,19 +43,11 @@ Environment=PYTHONUNBUFFERED=1
 # so naming one that has not been deployed yet is harmless and self-explanatory
 # (prometheus reads that way wherever it runs as a container rather than a unit).
 Environment=HEALTH_SERVICES=nginx,docker,keepalived,prometheus,ssh
-# node2: Environment=HEALTH_SERVICES=nginx,keepalived,prometheus,sshd,firewalld
-#
-# Do NOT add the rootless application unit to this list on node2. The Quadlet
-# runs under `systemctl --user`; this monitor runs as root and queries the
-# system manager, which has never heard of it, so it would report
-# `not-installed` forever - worse than absent, because it reads as "the app is
-# not deployed". Application liveness on node2 comes from the container check
-# (HEALTH_CONTAINER_USER, below) and from HEALTH_APP_ENDPOINTS.
 
 # Rootless Podman: containers belong to the user that started them, so root's
 # `podman ps` sees an empty store. Naming the owner lets the monitor look in
-# the right place. Leave unset on a Docker host.
-# node2: Environment=HEALTH_CONTAINER_USER=ericratz
+# the right place. Unset here because node1's Docker runs as root; node2 sets
+# it in its drop-in.
 
 # Application endpoints, as name=url pairs. Pointing each node at BOTH nodes
 # makes either node's report a fleet-wide dashboard. Identical on both nodes:
@@ -108,9 +103,9 @@ PrivateTmp=yes
 # buys little here.
 
 # ProtectHome hides /home. Safe for a root Docker or root Podman runtime, whose
-# state lives under /var/lib/containers.
-# node2: comment the next line out. HEALTH_CONTAINER_USER runs `su -`, which
-# needs the target user's home to build their login session.
+# state lives under /var/lib/containers. A host that sets HEALTH_CONTAINER_USER
+# must override this to `no` in its drop-in: `su -` needs the target user's
+# home to build their login session.
 ProtectHome=yes
 
 [Install]
