@@ -272,11 +272,59 @@ def test_filesystems_reports_every_writable_mount(monkeypatch):
     assert mounts[0] == "/var"
     assert filesystems[0]["used_percent"] == 95.0
     assert "/" in mounts
-    #tmpfs is RAM, and the snap image is read-only at 100% by design
-    assert "/run" not in mounts
+    #the snap image is read-only and sits at 100% by design
     assert "/snap/core24/1643" not in mounts
     #a read-only mount is excluded by option, whatever its type
     assert "/empty ro mount" not in mounts
+
+
+def test_tmpfs_is_reported_because_it_can_fill(monkeypatch):
+    #regression: /tmp and /dev/shm are tmpfs on a stock Ubuntu host, are sized
+    #(1.7G each on a 4G node), and break services when full. Excluding them as
+    #"just RAM" made a real outage invisible.
+    df = (
+        "Filesystem 1-blocks Used Available Capacity Mounted on\n"
+        "tmpfs 1825361920 1825361920 0 100% /tmp\n"
+        "tmpfs 1825361920 0 1825361920 0% /dev/shm\n"
+        "tmpfs 5242880 4096 5238784 1% /run/lock\n"
+    )
+    mounts = (
+        "tmpfs /tmp tmpfs rw,nosuid,nodev 0 0\n"
+        "tmpfs /dev/shm tmpfs rw,nosuid,nodev 0 0\n"
+        "tmpfs /run/lock tmpfs rw,nosuid,nodev,size=5120k 0 0\n"
+    )
+    monkeypatch.setattr(
+        sm, "run_command", lambda cmd, timeout=3: {"stdout": df, "success": True}
+    )
+    monkeypatch.setattr(sm, "_read_file", lambda path: mounts)
+    filesystems = sm.get_filesystems()
+    by_mount = {fs["mount"]: fs for fs in filesystems}
+    assert "/tmp" in by_mount
+    assert "/dev/shm" in by_mount
+    #a full /tmp must lead the list so it drives status and alerts
+    assert filesystems[0]["mount"] == "/tmp"
+    assert filesystems[0]["used_percent"] == 100.0
+
+
+def test_dev_and_ramfs_stay_excluded(monkeypatch):
+    #/dev holds device nodes and ramfs has no size limit, so neither can
+    #meaningfully "fill"
+    df = (
+        "Filesystem 1-blocks Used Available Capacity Mounted on\n"
+        "udev 2000000 0 2000000 0% /dev\n"
+        "ramfs 1000 1000 0 100% /mnt/ramfs\n"
+        "/dev/sda1 1000 500 500 50% /\n"
+    )
+    mounts = (
+        "udev /dev devtmpfs rw 0 0\n"
+        "ramfs /mnt/ramfs ramfs rw 0 0\n"
+        "/dev/sda1 / ext4 rw 0 0\n"
+    )
+    monkeypatch.setattr(
+        sm, "run_command", lambda cmd, timeout=3: {"stdout": df, "success": True}
+    )
+    monkeypatch.setattr(sm, "_read_file", lambda path: mounts)
+    assert [fs["mount"] for fs in sm.get_filesystems()] == ["/"]
 
 
 def test_filesystems_keeps_a_full_writable_mount(monkeypatch):

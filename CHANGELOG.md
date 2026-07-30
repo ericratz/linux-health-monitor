@@ -15,8 +15,11 @@ interface that tool reads instead — `getenforce` reads `/sys/fs/selinux`,
 ### Breaking
 
 - **`features.docker` is now `features.containers`.** The check probes Docker
-  then Podman and reports which runtime answered in a new `runtime` field.
-  Calling the key `docker` on a Podman host was simply untrue.
+  then Podman and reports which one answered in a new `container_runtime` field.
+  Calling the key `docker` on a Podman host was simply untrue. The field is
+  named `container_runtime` rather than `runtime` because it describes the
+  runtime found *on the host*, not the environment the monitor is running in —
+  `system.environment` is what answers that.
 - **`requirements.txt` no longer installs `psutil`.** It lists only `pytest`,
   for tests. Nothing is needed to run the agent.
 - **A failed systemd unit or an unsynchronized clock now yields `WARNING`**
@@ -111,6 +114,12 @@ interface that tool reads instead — `getenforce` reads `/sys/fs/selinux`,
   the test that separates a snap image sitting at 100% forever from a genuinely
   full `/var`. Type is only used to drop kernel-synthetic and remote
   filesystems, the latter because a hung remote server would stall `df`.
+  **tmpfs mounts are reported**, despite being RAM-backed: they are sized and
+  can fill, and when they do, services fail. On a stock Ubuntu host `/tmp` and
+  `/dev/shm` are tmpfs at ~1.7 GB each, so on a 4 GB node they are both a real
+  outage surface and a meaningful share of total RAM. `devtmpfs` (`/dev`) and
+  `ramfs` stay excluded: the former only holds device nodes, and the latter has
+  no size limit to measure against.
 - **CPU temperature** from `/sys/class/thermal`, falling back to
   `/sys/class/hwmon` where `coretemp`/`k10temp` surface on physical hardware.
   CPU sensors are preferred over ambient ones, and multiple readings from the
@@ -131,9 +140,13 @@ interface that tool reads instead — `getenforce` reads `/sys/fs/selinux`,
   filesystem, journal commands name the specific failing unit, and the reboot
   hint matches the family. Nothing is ever executed; commands that would change
   system state are only ever emitted as strings for a person to choose to run.
-- `systemctl is-active` output is now trusted whenever it produced any: the
-  command exits non-zero for a merely stopped unit, which previously became
-  `unknown` instead of `inactive`.
+- **Service status uses `systemctl show` instead of `is-active`**, so a unit that
+  is *not installed* reports `not-installed` rather than `inactive`. `is-active`
+  returns "inactive" for both, which reads as "installed but stopped" and is
+  actively misleading for `docker` on a Podman host or `nginx` before the
+  platform is deployed. A masked unit reports `masked`, and a failed one carries
+  its `SubState` as `detail`. This also fixes the older behaviour where a merely
+  stopped unit became `unknown`, since `is-active` exits non-zero for it.
 
 ### Fixed
 

@@ -119,7 +119,7 @@ def render_services(services):
 def render_containers(containers_feature):
     if not containers_feature.get("success"):
         return f'<p class="muted">{esc(containers_feature.get("reason", "unavailable"))}</p>'
-    runtime = esc(containers_feature.get("runtime", "unknown"))
+    runtime = esc(containers_feature.get("container_runtime", "unknown"))
     containers = containers_feature.get("running_containers", [])
     if not containers:
         return f'<p class="muted">No containers running <span class="mono">({runtime})</span></p>'

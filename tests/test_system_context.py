@@ -26,7 +26,7 @@ def test_containers_prefers_docker_when_present(monkeypatch):
     }))
     result = sc.get_containers()
     assert result["success"] is True
-    assert result["runtime"] == "docker"
+    assert result["container_runtime"] == "docker"
     assert result["running_containers"] == ["api", "db"]
     assert result["count"] == 2
 
@@ -38,7 +38,7 @@ def test_containers_falls_back_to_podman(monkeypatch):
         "podman": {"stdout": "brp-api", "stderr": "", "returncode": 0, "success": True},
     }))
     result = sc.get_containers()
-    assert result["runtime"] == "podman"
+    assert result["container_runtime"] == "podman"
     assert result["running_containers"] == ["brp-api"]
 
 
@@ -82,12 +82,48 @@ def test_rootless_wrapper_declines_an_unknown_user():
     assert sc._rootless_command(["podman", "ps"], "no-such-user-here") is None
 
 
+def _systemctl_show(load_state, active_state="inactive", sub_state="dead"):
+    output = (
+        f"LoadState={load_state}\n"
+        f"ActiveState={active_state}\n"
+        f"SubState={sub_state}\n"
+    )
+    return lambda cmd, timeout=3: {
+        "stdout": output, "stderr": "", "returncode": 0, "success": True
+    }
+
+
 def test_service_status_reports_stopped_units(monkeypatch):
-    #`systemctl is-active` exits non-zero for a stopped unit but still answers
-    monkeypatch.setattr(sc, "run_command", lambda cmd, timeout=3: {
-        "stdout": "inactive", "stderr": "", "returncode": 3, "success": False
-    })
+    monkeypatch.setattr(sc, "run_command", _systemctl_show("loaded", "inactive"))
     assert sc.get_service_status("nginx") == {"service": "nginx", "status": "inactive"}
+
+
+def test_service_status_reports_active_units(monkeypatch):
+    monkeypatch.setattr(sc, "run_command", _systemctl_show("loaded", "active", "running"))
+    assert sc.get_service_status("docker")["status"] == "active"
+
+
+def test_service_status_distinguishes_not_installed_from_stopped(monkeypatch):
+    #docker on a Podman host: `is-active` says "inactive", which reads as
+    #"installed but stopped" and is misleading
+    monkeypatch.setattr(sc, "run_command", _systemctl_show("not-found"))
+    assert sc.get_service_status("docker") == {
+        "service": "docker", "status": "not-installed"
+    }
+
+
+def test_service_status_reports_masked_units(monkeypatch):
+    monkeypatch.setattr(sc, "run_command", _systemctl_show("masked"))
+    assert sc.get_service_status("firewalld")["status"] == "masked"
+
+
+def test_service_status_explains_a_failure(monkeypatch):
+    monkeypatch.setattr(
+        sc, "run_command", _systemctl_show("loaded", "failed", "exit-code")
+    )
+    result = sc.get_service_status("brp-api")
+    assert result["status"] == "failed"
+    assert result["detail"] == "exit-code"
 
 
 def test_service_status_unknown_when_systemctl_cannot_answer(monkeypatch):

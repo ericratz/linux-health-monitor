@@ -39,12 +39,31 @@ compiled in, so the same build serves any host.
 
 | Variable | Purpose |
 |---|---|
-| `HEALTH_SERVICES` | Comma-separated units to check. Differs per host. |
+| `HEALTH_SERVICES` | Comma-separated units to check. Differs per host — see below. |
 | `HEALTH_CONTAINER_USER` | Owner of a **rootless** container runtime (node2). |
 | `HEALTH_APP_ENDPOINTS` | `name=url` pairs for HTTP checks. Unset = feature omitted. |
 | `HEALTH_APP_TIMEOUT` | Per-endpoint timeout in seconds (default 2). |
 | `HEALTH_JOURNAL_WINDOW` | How far back to count journal errors (default `-1h`). |
 | `HEALTH_{CPU,MEM,DISK}_{WARN,CRIT}` | Alert thresholds, in percent. Disk thresholds apply to *every* filesystem. |
+
+### Unit names differ per host
+
+`HEALTH_SERVICES` is per-host because the units genuinely differ — including the
+SSH daemon, whose unit is `ssh` on Debian but `sshd` on RHEL:
+
+```
+# Debian family (Docker host)
+Environment=HEALTH_SERVICES=docker,chronyd,ssh
+```
+
+```
+# RHEL family (rootless Podman host)
+Environment=HEALTH_SERVICES=chronyd,sshd,firewalld
+```
+
+A unit that is not installed reports `not-installed` rather than `inactive`, so
+naming one that does not exist yet (nginx before the platform is deployed) is
+harmless and self-explanatory in the report.
 
 ### Fleet dashboard
 

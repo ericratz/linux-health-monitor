@@ -147,22 +147,41 @@ def get_service_status(name):
     """
     Check the status of a specific service.
 
-    `systemctl is-active` exits non-zero for a unit that is simply stopped, so
-    its stdout ("inactive", "failed") is the answer whenever it produced one;
-    an empty stdout means systemctl itself could not answer.
+    Uses `systemctl show` rather than `is-active` so that a unit which is not
+    installed is distinguishable from one that is installed but stopped:
+    `is-active` reports "inactive" for both, which is actively misleading when
+    the unit does not exist at all (docker on a Podman host, nginx before the
+    platform is deployed). LoadState is what tells them apart.
     """
-    result = run_command(["systemctl", "is-active", name])
-    status = result["stdout"].strip()
-    if not status:
+    result = run_command([
+        "systemctl", "show", name,
+        "--property=LoadState", "--property=ActiveState", "--property=SubState",
+    ])
+    properties = {}
+    for line in result["stdout"].splitlines():
+        key, sep, value = line.partition("=")
+        if sep:
+            properties[key.strip()] = value.strip()
+
+    if not properties:
         return {
             "service": name,
             "status": "unknown",
             "error": result["stderr"]
         }
-    return {
-        "service": name,
-        "status": status
-    }
+
+    load_state = properties.get("LoadState")
+    if load_state == "not-found":
+        return {"service": name, "status": "not-installed"}
+    if load_state == "masked":
+        return {"service": name, "status": "masked"}
+
+    status = properties.get("ActiveState") or "unknown"
+    service = {"service": name, "status": status}
+    #for a failed unit the substate says how it failed, which is the useful part
+    if status == "failed" and properties.get("SubState"):
+        service["detail"] = properties["SubState"]
+    return service
 
 def _rootless_command(command, user):
     """
@@ -210,7 +229,9 @@ def get_containers():
         return {
             "feature": "containers",
             "success": True,
-            "runtime": runtime,
+            #named container_runtime, not runtime: this is the runtime found ON
+            #the host, not the environment the monitor is running in
+            "container_runtime": runtime,
             "running_containers": containers,
             "count": len(containers)
         }

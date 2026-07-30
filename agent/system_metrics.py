@@ -31,11 +31,18 @@ CPU_SENSOR_HINTS = ("x86_pkg_temp", "coretemp", "k10temp", "cpu", "acpitz")
 #Virtual and non-physical block devices to exclude from disk IO totals.
 VIRTUAL_DISK_PREFIXES = ("loop", "ram", "zram", "dm-", "md", "sr", "fd")
 
-#Filesystem types whose usage is not an operational concern: RAM-backed,
-#kernel-synthetic, or remote (a hung remote server would stall df). Read-only
+#Filesystem types whose usage carries no operational signal: kernel-synthetic
+#(no capacity at all), or remote (a hung server would stall df). Read-only
 #images are filtered separately, by mount option rather than by type.
+#
+#tmpfs is deliberately NOT excluded. It is RAM-backed, but it has a finite size
+#and filling it causes real outages: a full /tmp breaks any service that writes
+#temporary files, and a full /dev/shm breaks shared-memory applications. On a
+#small host the tmpfs sizes also add up to a meaningful share of total RAM.
+#devtmpfs (/dev) and ramfs are still excluded: the former only holds device
+#nodes, and the latter has no size limit to measure usage against.
 EXCLUDED_FS_TYPES = frozenset({
-    "tmpfs", "devtmpfs", "devfs", "ramfs", "rootfs", "overlay", "squashfs",
+    "devtmpfs", "devfs", "ramfs", "rootfs", "overlay", "squashfs",
     "proc", "sysfs", "cgroup", "cgroup2", "debugfs", "tracefs", "efivarfs",
     "pstore", "securityfs", "configfs", "fusectl", "mqueue", "hugetlbfs",
     "autofs", "binfmt_misc", "bpf", "nsfs", "devpts",
@@ -603,6 +610,9 @@ def _is_reportable_filesystem(mountpoint, mounts):
     sits at 100% forever by design, while a genuinely full /var is read-write
     and must still be reported. Type is only used to drop kernel-synthetic and
     remote filesystems, the latter because a hung server would stall df.
+
+    Note that tmpfs mounts (/tmp, /dev/shm, /run) ARE reported: they are sized
+    and can fill, and when they do, services fail.
     """
     info = mounts.get(mountpoint)
     if info is None:

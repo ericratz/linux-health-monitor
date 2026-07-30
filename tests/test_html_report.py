@@ -40,7 +40,7 @@ def test_process_names_are_escaped_into_the_document():
 
 def test_container_names_are_escaped():
     html = render_containers({
-        "success": True, "runtime": "podman", "running_containers": [INJECTION]
+        "success": True, "container_runtime": "podman", "running_containers": [INJECTION]
     })
     assert "<script>" not in html
     assert "&lt;script&gt;" in html
@@ -116,7 +116,7 @@ def test_app_checks_surfaces_the_endpoints_own_status_field():
 
 def test_containers_shows_which_runtime_answered():
     html = render_containers({
-        "success": True, "runtime": "podman", "running_containers": ["brp-api"]
+        "success": True, "container_runtime": "podman", "running_containers": ["brp-api"]
     })
     assert "podman" in html
     assert "1 running" in html

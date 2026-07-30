@@ -33,7 +33,7 @@ v3.0 reads the kernel's own interfaces instead of going through an abstraction l
 | Per-process memory | `/proc/<pid>/statm` | the kernel documents `stat`'s `rss` field as inaccurate |
 | Memory / swap | `/proc/meminfo` | most stable; `free`'s column layout varies |
 | Disk usage | `df -P -B1 /` | `-P` forces portable single-line columns |
-| **All filesystems** | `df -P -B1` + `/proc/mounts` | only `/` was measured before, hiding a full `/var` |
+| **All filesystems** | `df -P -B1` + `/proc/mounts` | only `/` was measured before, hiding a full `/var`; includes tmpfs (`/tmp`, `/dev/shm`), which is sized and breaks services when full |
 | Disk I/O | `/proc/diskstats` (delta) | no `sysstat` dependency |
 | **I/O pressure** | `/proc/stat` iowait, `/proc/vmstat`, `/proc/loadavg` | `vmstat`'s signal without the `sysstat` package |
 | Top dirs by size | `du -B1 -s` | handles hardlinks and sparse files; partial output kept on permission errors |
@@ -227,7 +227,7 @@ HEALTH_APP_ENDPOINTS="api=http://127.0.0.1:8000/health" python3 -m agent.monitor
     "containers": {
       "feature": "containers",
       "success": true,
-      "runtime": "podman",
+      "container_runtime": "podman",
       "running_containers": ["brp-api"],
       "count": 1
     },
