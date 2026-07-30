@@ -1,4 +1,4 @@
-# Linux Health Monitor Agent v3.1
+# Linux Health Monitor Agent v3.2
 
 A lightweight, environment-aware system observability tool that collects system metrics and generates structured health reports with automated diagnosis and remediation guidance. Designed for safe, portable execution across Linux, WSL2, Docker, and CI/CD environments.
 
@@ -144,6 +144,7 @@ HEALTH_CPU_CRIT=60 python3 -m agent.monitor
 | `HEALTH_APP_ENDPOINTS` | *(unset)* | `name=url` pairs; unset omits the feature |
 | `HEALTH_APP_TIMEOUT` | 2 | Per-endpoint timeout in seconds |
 | `HEALTH_APP_CRITICAL` | *(unset)* | Endpoint names that count toward the health status; unset scores this host's own endpoints plus the VIP |
+| `HEALTH_REPORT_MODE` | `0640` | Octal file mode for the written HTML report |
 | `HEALTH_VIP` | *(unset)* | Virtual IP(s) to check against this host's own interfaces; unset omits the feature |
 | `HEALTH_JOURNAL_WINDOW` | `-1h` | How far back to count journal errors (`journalctl --since` syntax) |
 | `HEALTH_SELF_UNIT` | `health-monitor.service` | This monitor's own unit, excluded from the failed-unit count |

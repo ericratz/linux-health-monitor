@@ -44,6 +44,13 @@ import argparse
 import json
 import os
 
+#Mode for a written report. Deliberately not world-readable: the report is a
+#host inventory, and every account on the box could read it at the 0644 a
+#default umask produces. Serving it needs group read plus a setgid directory
+#owned by the web server's group - see systemd/README.md.
+REPORT_MODE_ENV = "HEALTH_REPORT_MODE"
+DEFAULT_REPORT_MODE = 0o640
+
 """
 Linux Health Monitor Agent
 
@@ -209,6 +216,26 @@ def parse_args():
     )
     return parser.parse_args()
 
+def _report_mode():
+    """
+    Returns the file mode for a written report.
+
+    The report enumerates listening ports with process names, containers,
+    internal addressing, MAC addresses and disk contents - a host inventory,
+    not a status page. A network allow-list in front of it does not stop a
+    local account reading the file, so the mode is chosen rather than inherited
+    from whatever umask the service happens to run under.
+    """
+    raw = os.getenv(REPORT_MODE_ENV, "").strip()
+    if not raw:
+        return DEFAULT_REPORT_MODE
+    try:
+        #octal, with or without a leading 0o/0
+        return int(raw, 8)
+    except ValueError:
+        return DEFAULT_REPORT_MODE
+
+
 def write_output(view, html_file=None):
     """
     Outputs as JSON or HTML file.
@@ -230,6 +257,8 @@ def write_output(view, html_file=None):
             os.makedirs(directory, exist_ok=True)
             with open(output_path, "w") as f:
                 f.write(html)
+            #after writing: open() is masked by umask, chmod is not
+            os.chmod(output_path, _report_mode())
         else:
             print(json.dumps(view, indent=2))
     except Exception as e:

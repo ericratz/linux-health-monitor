@@ -1,5 +1,48 @@
-from agent.monitor import HealthMonitor
+import os
+
+from agent.monitor import HealthMonitor, write_output
 from agent.html_report import generate_html, humanize_view
+
+
+VIEW = {
+    "timestamp": "2026-07-30T00:00:00+00:00",
+    "system": {"hostname": "node1"},
+    "core_metrics": {"cpu": 1.0},
+    "health": {"status": "HEALTHY", "diagnosis": []},
+}
+
+
+def test_report_is_not_world_readable_by_default(tmp_path, monkeypatch):
+    #the report is a host inventory - ports with process names, containers,
+    #addressing, MACs. A network allow-list does not stop a local account
+    #reading the file, and 0644 is what a default umask would have produced.
+    monkeypatch.delenv("HEALTH_REPORT_MODE", raising=False)
+    target = tmp_path / "web" / "report.html"
+    write_output(VIEW, str(target))
+    assert oct(os.stat(target).st_mode)[-3:] == "640"
+
+
+def test_report_mode_is_configurable(tmp_path, monkeypatch):
+    #group-readable is what a web server needs; the deployer chooses
+    monkeypatch.setenv("HEALTH_REPORT_MODE", "644")
+    target = tmp_path / "report.html"
+    write_output(VIEW, str(target))
+    assert oct(os.stat(target).st_mode)[-3:] == "644"
+
+
+def test_unparseable_report_mode_falls_back(tmp_path, monkeypatch):
+    #a typo must not silently widen the mode
+    monkeypatch.setenv("HEALTH_REPORT_MODE", "not-a-mode")
+    target = tmp_path / "report.html"
+    write_output(VIEW, str(target))
+    assert oct(os.stat(target).st_mode)[-3:] == "640"
+
+
+def test_absolute_html_path_creates_its_parent(tmp_path):
+    #so the report can be written straight into a web root
+    target = tmp_path / "var" / "www" / "health" / "report.html"
+    write_output(VIEW, str(target))
+    assert target.exists()
 
 
 def test_report_structure():

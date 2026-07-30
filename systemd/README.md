@@ -116,6 +116,7 @@ compiled in, so the same build serves any host.
 | `HEALTH_VIP` | Virtual IP(s) to check against this host's own interfaces. Unset = feature omitted. |
 | `HEALTH_JOURNAL_WINDOW` | How far back to count journal errors (code default `-1h`; the unit ships `-15min`). |
 | `HEALTH_SELF_UNIT` | This monitor's own unit, excluded from the failed count (default `health-monitor.service`). |
+| `HEALTH_REPORT_MODE` | Octal file mode for the written report (default `0640`). |
 | `HEALTH_{CPU,MEM,DISK}_{WARN,CRIT}` | Alert thresholds, in percent. Disk thresholds apply to *every* filesystem. |
 
 The unit ships with node1's values live and is **copied verbatim to every
@@ -192,6 +193,23 @@ process names, running containers, internal addressing, MAC addresses and disk
 contents. That is a reconnaissance summary of the host, so whatever serves it
 should restrict access — bind it to the management network, or put auth or an
 IP allow-list in front of it. Do not publish it on a public VIP unguarded.
+
+An allow-list governs *network* reach only; it does nothing about a local
+account reading the file. So the report is written `0640`, not the `0644` a
+default umask produces. Override with `HEALTH_REPORT_MODE` (octal), which falls
+back to `0640` if it cannot be parsed — a typo must not silently widen it.
+
+`0640` means a web server cannot read the file unless it is in the owning
+group, and the report is rewritten every run, so a one-off `chgrp` will not
+survive. Make the *directory* setgid and new files inherit its group:
+
+```bash
+sudo install -d -o root -g nginx -m 2750 /var/www/health
+```
+
+Use `www-data` instead of `nginx` on the Debian side. Verify with
+`stat -c '%U %G %a' /var/www/health/report.html` after a run — group should be
+the web server's, mode `640`.
 
 ### Who holds the VIP
 

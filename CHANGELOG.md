@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased
+## v3.2
+
+The release where the exit code started meaning something.
+
+v3.1 made the timer's exit status a real signal, but only a crashed unit, a
+skewed clock or a resource threshold could move it — so a host running none of
+the services it was configured to watch, failing every endpoint it was told to
+probe, still reported HEALTHY and exited 0. That was observed on both nodes of
+a live pair, which is what prompted this. Configured services and endpoints now
+score, scoped to the node reporting them, and the report is treated as the
+sensitive document it always was.
 
 ### Breaking
 
@@ -47,6 +57,12 @@
 - **`--html` accepts an absolute path**, creating the parent directory, so the
   report can be written straight into a web root instead of being copied there
   by a second moving part.
+- **Reports are written `0640`, not the `0644` a default umask produced**, with
+  `HEALTH_REPORT_MODE` to override. The report is a host inventory — ports with
+  process names, containers, addressing, MACs — and a network allow-list in
+  front of the web server does nothing about a local account reading the file.
+  Serving it now needs a setgid directory owned by the web server's group, so
+  publishing is a deliberate act rather than a side effect of the umask.
 - **The VIP check names whoever is answering when this node is not.** Read
   passively from the neighbour cache, so `not held` becomes
   `not held (answered by d8:44:89:a0:66:60)`. A peer's MAC means failover; an
