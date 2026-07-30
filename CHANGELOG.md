@@ -81,6 +81,9 @@ interface that tool reads instead — `getenforce` reads `/sys/fs/selinux`,
   another user, which root's own `podman ps` cannot see.
 - `systemd/` — a oneshot `.service` and a 2-minute `.timer`, the production
   deployment path, with per-host configuration as `Environment=` lines.
+  `NoNewPrivileges` is deliberately unset: on SELinux hosts it denies `podman`'s
+  transition into `container_runtime_t`, breaking container inspection and
+  logging an `nnp_transition` AVC denial on every run. Verified on Rocky 10.
 - HTML report gains **Filesystems**, **Application Endpoints**, **Journal
   Errors** and **Host Posture** cards, and renders the suggested commands,
   which previously existed only in the JSON.

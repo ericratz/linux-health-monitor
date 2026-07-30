@@ -80,11 +80,26 @@ deliberately out of scope.
 
 ## Two gotchas
 
+**SELinux and `NoNewPrivileges`.** The unit deliberately does *not* set
+`NoNewPrivileges=yes`. On a RHEL host it breaks container inspection: `podman`
+has to transition into the `container_runtime_t` SELinux domain, and
+`NoNewPrivileges` forbids that transition, producing an audit denial on every
+run:
+
+```
+avc: denied { nnp_transition } scontext=...:unconfined_service_t
+     tcontext=...:container_runtime_t tclass=process2 permissive=0
+```
+
+Verify with `sudo ausearch -m avc -ts today` after the first run; `<no matches>`
+is what you want. This is a good example of why the `security_module` check
+exists — the same unit is silently fine on AppArmor and denied on SELinux.
+
 **Rootless Podman (node2).** Containers belong to the user that started them,
 so root's `podman ps` queries root's own empty store and reports nothing. Set
-`HEALTH_CONTAINER_USER` to the owning user — and then comment out both
-`NoNewPrivileges=yes` and `ProtectHome=yes`, because `su` is setuid (blocked by
-the former) and needs the target user's home (hidden by the latter).
+`HEALTH_CONTAINER_USER` to the owning user — and then also comment out
+`ProtectHome=yes`, since `su -` needs the target user's home to build their
+login session.
 
 **Privilege.** The service runs as root so that `ss -tulnp` process names, the
 system journal and unit state are all readable. Running unprivileged works and
